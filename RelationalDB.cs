@@ -27,6 +27,7 @@ namespace SecondaryIndex
 
         const byte USER_TO_TABLE_ID_PREFIX = (byte)'U';  // 0x55
         const byte USER_TABLE_ID_TO_COLUMNS_PREFIX = (byte)'T';  // 0x54
+        const byte DROPPED_TABLE_ID_TO_COLUMNS_PREFIX = (byte)'D';  // 0x44
 
         /// <summary>
         /// 
@@ -40,6 +41,7 @@ namespace SecondaryIndex
         {
             ExecutionEngine.Assert(Runtime.CheckWitness(user), "witness CreateTable");
             if (columnTypes.Length > 256) throw new ArgumentOutOfRangeException("Too many columns");
+            if (columnTypes.Length == 0) throw new ArgumentException("No column specified");
             int l = columnTypes.Length;
             for (int i = 0; i < l; ++i)
             {
@@ -52,7 +54,7 @@ namespace SecondaryIndex
                     // now columnTypes[i] refers to the (fixed) length of the value, in count of bytes
                     continue;
                 }
-                throw new ArgumentException("Invalid type" + type);
+                throw new ArgumentException("Invalid type " + type);
             }
 
             StorageContext context = Storage.CurrentContext;
@@ -62,6 +64,19 @@ namespace SecondaryIndex
             userToTableId.Put(user, bigIntegerId + 1);
             new StorageMap(context, USER_TABLE_ID_TO_COLUMNS_PREFIX).Put(user + byteStringId, columnTypes);
             return bigIntegerId;
+        }
+
+        public static void DropTable(UInt160 user, ByteString tableId)
+        {
+            ExecutionEngine.Assert(Runtime.CheckWitness(user), "witness DropTable");
+            StorageContext context = Storage.CurrentContext;
+            ByteString key = user + tableId;
+            StorageMap userToTableId = new StorageMap(context, USER_TABLE_ID_TO_COLUMNS_PREFIX);
+            ByteString columnTypes = userToTableId.Get(key);
+            if (columnTypes == null || columnTypes.Length == 0)
+                throw new ArgumentException("No table at id " + tableId);
+            userToTableId.Delete(key);
+            new StorageMap(context, DROPPED_TABLE_ID_TO_COLUMNS_PREFIX).Put(key, columnTypes);
         }
 
         public static ByteString EncodeInteger(BigInteger i) => EncodeByteString((ByteString)i);
