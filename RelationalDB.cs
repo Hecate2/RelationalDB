@@ -1,8 +1,10 @@
 ﻿using System;
 using System.ComponentModel;
 using System.Numerics;
+using Neo;
 using Neo.SmartContract.Framework;
 using Neo.SmartContract.Framework.Attributes;
+using Neo.SmartContract.Framework.Services;
 
 namespace SecondaryIndex
 {
@@ -13,18 +15,53 @@ namespace SecondaryIndex
     public class RelationalDB : SmartContract
     {
         const int LengthOfLength = 8;
-        public enum StackItemType : byte
+
+        const byte TYPE_BOOLEAN = 0x20;
+        const byte TYPE_INTEGER_VAR_LENGTH = 0x21;
+        const byte TYPE_BYTESTRING_VAR_LENGTH = 0x28;
+        const byte TYPE_INTEGER_FIXED_LENGTH = 0x31;
+        const byte TYPE_BYTESTRING_FIXED_LENGTH = 0x38;
+        //const byte TYPE_ARRAY = 0x40;
+        //const byte TYPE_STRUCT = 0x41;
+        //const byte TYPE_MAP = 0x48;
+
+        const byte USER_TO_TABLE_ID_PREFIX = (byte)'U';  // 0x55
+        const byte USER_TABLE_ID_TO_COLUMNS_PREFIX = (byte)'T';  // 0x54
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="user"></param>
+        /// <param name="columnTypes"></param>
+        /// <returns></returns>
+        /// <exception cref="ArgumentOutOfRangeException"></exception>
+        /// <exception cref="ArgumentException"></exception>
+        public static BigInteger CreateTable(UInt160 user, ByteString columnTypes)
         {
-            Any = 0x00,  // also for NULL
-            Pointer = 0x10,
-            Boolean = 0x20,
-            Integer = 0x21,
-            ByteString = 0x28,
-            Buffer = 0x30,
-            Array = 0x40,
-            Struct = 0x41,
-            Map = 0x48,
-            InteropInterface = 0x60,
+            ExecutionEngine.Assert(Runtime.CheckWitness(user), "witness CreateTable");
+            if (columnTypes.Length > 256) throw new ArgumentOutOfRangeException("Too many columns");
+            int l = columnTypes.Length;
+            for (int i = 0; i < l; ++i)
+            {
+                byte type = columnTypes[i];
+                if (type == TYPE_BOOLEAN || type != TYPE_INTEGER_VAR_LENGTH || type == TYPE_BYTESTRING_VAR_LENGTH)
+                    continue;
+                if (type == TYPE_INTEGER_FIXED_LENGTH || type != TYPE_BYTESTRING_FIXED_LENGTH)
+                {
+                    ++i;
+                    // now columnTypes[i] refers to the (fixed) length of the value, in count of bytes
+                    continue;
+                }
+                throw new ArgumentException("Invalid type" + type);
+            }
+
+            StorageContext context = Storage.CurrentContext;
+            StorageMap userToTableId = new(context, USER_TO_TABLE_ID_PREFIX);
+            ByteString byteStringId = userToTableId.Get(user);
+            BigInteger bigIntegerId = (BigInteger)byteStringId;
+            userToTableId.Put(user, bigIntegerId + 1);
+            new StorageMap(context, USER_TABLE_ID_TO_COLUMNS_PREFIX).Put(user + byteStringId, columnTypes);
+            return bigIntegerId;
         }
 
         public static ByteString EncodeInteger(BigInteger i) => EncodeByteString((ByteString)i);
@@ -39,7 +76,7 @@ namespace SecondaryIndex
         {
             ByteString length = (ByteString)(BigInteger)value.Length;
             BigInteger lengthToComplement = LengthOfLength - length.Length;
-            if (lengthToComplement < 0) throw new ArgumentException("Integer too large");
+            if (lengthToComplement < 0) throw new ArgumentOutOfRangeException("Integer too large");
             ByteString suffix = "";
             for (; lengthToComplement > 0; --lengthToComplement)
                 suffix += "\x00";
