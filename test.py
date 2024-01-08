@@ -22,23 +22,28 @@ class Types(bytes, Enum):
 
 
 table_name = 'testTable'
-assert 'Invalid type' in c.invokefunction('createTable', [user, table_name, Types.Boolean + Types.IntegerVarLen + b'\x00'], do_not_raise_on_result=True)
-assert 'SEPARATOR in tableName' in c.invokefunction('createTable', [user, 'testTable¶', Types.Boolean + Types.IntegerVarLen + Types.ByteStringVarLen + Types.IntegerFixedLen + b'\x04' + Types.ByteStringFixedLen + b'\x20'], do_not_raise_on_result=True)
+assert 'Invalid type' in c.invokefunction('createTable', [user, table_name, Types.Boolean + Types.IntegerVarLen + b'\x00', True], do_not_raise_on_result=True)
+assert 'SEPARATOR in tableName' in c.invokefunction('createTable', [user, 'testTable¶', Types.Boolean + Types.IntegerVarLen + Types.ByteStringVarLen + Types.IntegerFixedLen + b'\x04' + Types.ByteStringFixedLen + b'\x20', True], do_not_raise_on_result=True)
 c.invokefunction(
     'createTable', [
         user, 'testTable',
-        Types.Boolean + Types.IntegerVarLen + Types.ByteStringVarLen + Types.IntegerFixedLen + b'\x04' + Types.ByteStringFixedLen + b'\x20'
+        Types.Boolean + Types.IntegerVarLen + Types.ByteStringVarLen + Types.IntegerFixedLen + b'\x04' + Types.ByteStringFixedLen + b'\x20',
         # bool, int, str, int32, str(20)
+        True
     ])
 assert len(c.invokefunction('listTables', [user, 'test'])) == 1
 assert len(c.invokefunction('listAllTables')) == 1
 assert len(c.invokefunction('listDroppedTables', [user, ''])) == 0
 assert len(c.invokefunction('listAllDroppedTables')) == 0
 
-assert 'Too long value' in c.invokefunction('addRow', [user, table_name, [1, 24852966917239715797923, 'test str', 2**31, '0123456789']], do_not_raise_on_result=True)
-assert 'Too long value' in c.invokefunction('addRow', [user, table_name, [1, 24852966917239715797923, 'test str', 2**31-1, '0123456789abcdef 0123456789abcdef']], do_not_raise_on_result=True)
-c.invokefunction('addRow', [user, table_name, [1, 24852966917239715797923, 'test str', 2**31-1, '0123456789abcdef0123456789abcdef']])
-c.invokefunction('addRow', [user, table_name, [1, 24852966917239715797923, 'test str', 2**31-2, '12345678901234567890']])
+assert 'Too long value' in c.invokefunction('writeRow', [user, table_name, [1, 24852966917239715797923, 'test str', 2**31, '0123456789']], do_not_raise_on_result=True)
+assert 'Too long value' in c.invokefunction('writeRow', [user, table_name, [1, 24852966917239715797923, 'test str', 2**31-1, '0123456789abcdef 0123456789abcdef']], do_not_raise_on_result=True)
+c.invokefunction('writeRow', [user, table_name, [1, 24852966917239715797923, 'test str', 2**31-1, '0123456789abcdef0123456789abcdef']])
+c.invokefunction('writeRow', [user, table_name, [1, 233, 'test str 233', 2**31-2, '12345678901234567890']])
+
+assert c.invokefunction('getRow', [user, table_name, 1]) == [True, 24852966917239715797923, 'test str', 2147483647, '0123456789abcdef0123456789abcdef']
+assert c.invokefunction('getRow', [user, table_name, 2]) == [True, 233, 'test str 233', 2147483646, '12345678901234567890\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00']
+assert 'No data' in c.invokefunction('getRow', [user, table_name, 0], do_not_raise_on_result=True)
 
 c.invokefunction('deleteRow', [user, table_name, 1])
 c.invokefunction('deleteRow', [user, table_name, 2])
