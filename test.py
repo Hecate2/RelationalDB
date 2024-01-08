@@ -23,11 +23,27 @@ class Types(bytes, Enum):
 
 table_name = 'testTable'
 assert 'Invalid type' in c.invokefunction('createTable', [user, table_name, Types.Boolean + Types.IntegerVarLen + b'\x00'], do_not_raise_on_result=True)
-c.invokefunction('createTable', [user, 'testTable', Types.Boolean + Types.IntegerVarLen + Types.ByteStringVarLen + Types.IntegerFixedLen + b'\x04' + Types.ByteStringFixedLen + b'\x20'])
+assert 'SEPARATOR in tableName' in c.invokefunction('createTable', [user, 'testTable¶', Types.Boolean + Types.IntegerVarLen + Types.ByteStringVarLen + Types.IntegerFixedLen + b'\x04' + Types.ByteStringFixedLen + b'\x20'], do_not_raise_on_result=True)
+c.invokefunction(
+    'createTable', [
+        user, 'testTable',
+        Types.Boolean + Types.IntegerVarLen + Types.ByteStringVarLen + Types.IntegerFixedLen + b'\x04' + Types.ByteStringFixedLen + b'\x20'
+        # bool, int, str, int32, str(20)
+    ])
 assert len(c.invokefunction('listTables', [user, 'test'])) == 1
 assert len(c.invokefunction('listAllTables')) == 1
 assert len(c.invokefunction('listDroppedTables', [user, ''])) == 0
 assert len(c.invokefunction('listAllDroppedTables')) == 0
+
+assert 'Too long value' in c.invokefunction('addRow', [user, table_name, [1, 24852966917239715797923, 'test str', 2**31, '0123456789']], do_not_raise_on_result=True)
+assert 'Too long value' in c.invokefunction('addRow', [user, table_name, [1, 24852966917239715797923, 'test str', 2**31-1, '0123456789abcdef 0123456789abcdef']], do_not_raise_on_result=True)
+c.invokefunction('addRow', [user, table_name, [1, 24852966917239715797923, 'test str', 2**31-1, '0123456789abcdef0123456789abcdef']])
+c.invokefunction('addRow', [user, table_name, [1, 24852966917239715797923, 'test str', 2**31-2, '12345678901234567890']])
+
+c.invokefunction('deleteRow', [user, table_name, 1])
+c.invokefunction('deleteRow', [user, table_name, 2])
+c.invokefunction('deleteRow', [user, table_name, 0])  # no id 0, but should not raise error
+
 c.invokefunction('dropTable', [user, table_name])
 assert len(c.invokefunction('listTables', [user, ''])) == 0
 assert len(c.invokefunction('listAllTables')) == 0
