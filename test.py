@@ -29,7 +29,7 @@ class Types(bytes, Enum):
 
 table_name = 'testTable'
 assert 'Invalid type' in c.invokefunction('createTable', [user, table_name, Types.Boolean + Types.IntVarLen + b'\x00', True], do_not_raise_on_result=True)
-assert 'SEPARATOR in tableName' in c.invokefunction('createTable', [user, 'testTable¶', Types.Boolean + Types.IntVarLen + Types.ByteStringVarLen + Types.IntFixedLen + b'\x04' + Types.ByteStringFixedLen + b'\x20', True], do_not_raise_on_result=True)
+assert 'SEPARATOR in tableName' in c.invokefunction('createTable', [user, 'testTable\x00', Types.Boolean + Types.IntVarLen + Types.ByteStringVarLen + Types.IntFixedLen + b'\x04' + Types.ByteStringFixedLen + b'\x20', True], do_not_raise_on_result=True)
 c.invokefunction(
     'createTable', [
         user, 'testTable',
