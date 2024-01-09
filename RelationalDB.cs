@@ -29,11 +29,11 @@ namespace RelationalDB
         //const byte TYPE_MAP = 0x48;
         // 'A' -> 0x41
 
-        const byte USER_TABLE_NAME_TO_COLUMNS_PREFIX = (byte)'T';  // 0x54     user + tableName -> columnTypes
-        const byte DROPPED_TABLE_NAME_TO_COLUMNS_PREFIX = (byte)'D';  // 0x44  user + tableName -> columnTypes
+        const byte USER_TABLE_NAME_TO_COLUMNS_PREFIX = (byte)'t';  // 0x74     user + tableName -> columnTypes
+        const byte DROPPED_TABLE_NAME_TO_COLUMNS_PREFIX = (byte)'d';  // 0x64  user + tableName -> columnTypes
         const string SEPARATOR = "\xb6";  // ¶
-        const byte ROWS_PREFIX = (byte)'R';  // 0x52  user + tableName + SEPARATOR + rowId -> data[]
-        const byte TABLE_ROW_ID_PREFIX = (byte)'I';  // 0x49  user + tableName -> rowId: int
+        const byte ROWS_PREFIX = (byte)'r';  // 0x72  user + tableName + SEPARATOR + rowId -> data[]
+        const byte TABLE_ROW_ID_PREFIX = (byte)'i';  // 0x69  user + tableName -> rowId: int
 
         [Safe]
         public static Iterator ListTables(UInt160 user, ByteString tableNamePrefix) => new StorageMap(USER_TABLE_NAME_TO_COLUMNS_PREFIX).Find(user + tableNamePrefix);
