@@ -22,7 +22,7 @@ namespace RelationalDB
         const byte BOOLEAN = 0x20;
         const byte INT_VAR_LEN = 0x21;
         const byte BYTESTRING_VAR_LEN = 0x28;
-        const byte UINT_FIXED_LEN = 0x31;  // dangerous to use minus numbers with fixed length integers!
+        const byte INT_FIXED_LEN = 0x31;
         const byte BYTESTRING_FIXED_LEN = 0x38;
         //const byte TYPE_ARRAY = 0x40;
         //const byte TYPE_STRUCT = 0x41;
@@ -46,8 +46,8 @@ namespace RelationalDB
 
         /// <summary>
         /// Be aware that Neo3 allows only storage key no more than 64 bytes
-        /// <see cref="user"/> costs 20 bytes; a separator costs 1 byte;
-        /// you need the remaining 43 bytes for table name and primary key
+        /// <see cref="user"/> costs 20 bytes; a separator costs 1 byte; a prefix costs 1 byte
+        /// you have only the remaining 42 bytes for table name and primary key
         /// DO NOT USE VERY LONG TABLE NAME
         /// </summary>
         /// <param name="user"></param>
@@ -63,8 +63,7 @@ namespace RelationalDB
         public static void CreateTable(UInt160 user, ByteString tableName, ByteString columnTypes, bool useAutoIncPriKey)
         {
             ExecutionEngine.Assert(Runtime.CheckWitness(user), "witness CreateTable");
-            ExecutionEngine.Assert(StdLib.MemorySearch(tableName, SEPARATOR) == -1,
-                "SEPARATOR in tableName");
+            ExecutionEngine.Assert(StdLib.MemorySearch(tableName, SEPARATOR) == -1, "SEPARATOR in tableName");
             if (columnTypes.Length > 256) throw new ArgumentOutOfRangeException("Too many columns");
             if (columnTypes.Length == 0) throw new ArgumentException("No column specified");
             int l = columnTypes.Length;
@@ -74,7 +73,7 @@ namespace RelationalDB
                 if (type == BOOLEAN || type == INT_VAR_LEN || type == BYTESTRING_VAR_LEN || 
                     type == UINT160 || type == UINT256)
                     continue;
-                if (type == UINT_FIXED_LEN || type == BYTESTRING_FIXED_LEN)
+                if (type == INT_FIXED_LEN || type == BYTESTRING_FIXED_LEN)
                 {
                     ++i;
                     // now columnTypes[i] refers to the (fixed) length of the value, in count of bytes
@@ -126,7 +125,8 @@ namespace RelationalDB
                     return EncodeByteStringFixedLength((UInt160)data, 20);
                 case UINT256:
                     return EncodeByteStringFixedLength((UInt256)data, 32);
-                case UINT_FIXED_LEN:
+                case INT_FIXED_LEN:
+                    return EncodeIntegerFixedLength((BigInteger)data, length);
                 case BYTESTRING_FIXED_LEN:
                     return EncodeByteStringFixedLength((ByteString)data, length);
                 default:
@@ -161,7 +161,7 @@ namespace RelationalDB
             if (rowId == null)
             {
                 byte type = columnTypes[columnTypesIndexer++];
-                if (type == UINT_FIXED_LEN || type == BYTESTRING_FIXED_LEN)
+                if (type == INT_FIXED_LEN || type == BYTESTRING_FIXED_LEN)
                     primaryKey = EncodeSingle(row[rowIndexer++], type, columnTypes[columnTypesIndexer++]);
                 else
                     primaryKey = EncodeSingle(row[rowIndexer++], type, 0);
@@ -174,7 +174,7 @@ namespace RelationalDB
             {
                 ExecutionEngine.Assert(rowIndexer < rowLength, "Wrong count of columns: rowIndexer=" + rowIndexer);
                 byte type = columnTypes[columnTypesIndexer++];
-                if (type == UINT_FIXED_LEN || type == BYTESTRING_FIXED_LEN)
+                if (type == INT_FIXED_LEN || type == BYTESTRING_FIXED_LEN)
                     writeContent += EncodeSingle(row[rowIndexer++], type, columnTypes[columnTypesIndexer++]);
                 else
                     writeContent += EncodeSingle(row[rowIndexer++], type, 0);
@@ -204,7 +204,7 @@ namespace RelationalDB
                     return DecodeInteger(encoded);
                 case BYTESTRING_VAR_LEN:
                     return DecodeByteString(encoded);
-                case UINT_FIXED_LEN:
+                case INT_FIXED_LEN:
                     return DecodeIntegerFixedLength(encoded, length);
                 case BYTESTRING_FIXED_LEN:
                     return DecodeByteStringFixedLength(encoded, length);
@@ -240,7 +240,7 @@ namespace RelationalDB
             {
                 // skip the first column of columnTypes, because it is the primary key
                 byte primaryKeyType = columnTypes[columnTypesIndexer++];
-                if (primaryKeyType == UINT_FIXED_LEN || primaryKeyType == BYTESTRING_FIXED_LEN)
+                if (primaryKeyType == INT_FIXED_LEN || primaryKeyType == BYTESTRING_FIXED_LEN)
                     columnTypesIndexer++;
                 row.Add(primaryKey);
             }
@@ -269,7 +269,7 @@ namespace RelationalDB
                         (ByteString s, data) = DecodeByteString(data);
                         row.Add(s);
                         break;
-                    case UINT_FIXED_LEN:
+                    case INT_FIXED_LEN:
                         (BigInteger iFixed, data) = DecodeIntegerFixedLength(data, columnTypes[columnTypesIndexer++]);
                         row.Add(iFixed);
                         break;
@@ -301,7 +301,7 @@ namespace RelationalDB
             if (lengthToComplement < 0) throw new ArgumentOutOfRangeException("Integer too large");
             ByteString suffix = "";
             for (; lengthToComplement > 0; --lengthToComplement)
-                suffix += "\x00";
+                suffix += new byte[] { 0x00 };
             return length + suffix + value;
             // length is little-endian. \x00 should be appended after it.
         }
@@ -319,21 +319,34 @@ namespace RelationalDB
             return ((BigInteger)result.Item1, result.Item2);
         }
 
-        public static ByteString EncodeIntegerFixedLength(BigInteger data, BigInteger fixedLength) => EncodeByteStringFixedLength((ByteString)data, fixedLength);
+        public static ByteString EncodeIntegerFixedLength(BigInteger i, BigInteger fixedLength)
+        {
+            ByteString data = (ByteString)i;
+            BigInteger lengthToComplement = fixedLength - data.Length;
+            if (lengthToComplement < 0)
+                throw new ArgumentException("Too long value " + data);
+            if (lengthToComplement > 0)
+            {
+                ByteString suffix = "";
+                for (; lengthToComplement > 0; --lengthToComplement)
+                    suffix += i >= 0 ? new byte[] { 0x00 } : new byte[] { 0xff };
+                data += suffix;
+            }
+            return data;
+        }
         public static ByteString EncodeByteStringFixedLength(ByteString data, BigInteger fixedLength)
         {
             BigInteger lengthToComplement = fixedLength - data.Length;
             if (lengthToComplement < 0)
                 throw new ArgumentException("Too long value " + data);
-            ByteString encoded = data;
             if (lengthToComplement > 0)
             {
                 ByteString suffix = "";
                 for (; lengthToComplement > 0; --lengthToComplement)
-                    suffix += "\x00";
-                encoded += suffix;
+                    suffix += new byte[] { 0x00 };
+                data += suffix;
             }
-            return encoded;
+            return data;
         }
         public static (ByteString, byte[]) DecodeByteStringFixedLength(byte[] encoded, int fixedLength)
         {
