@@ -36,6 +36,12 @@ namespace RelationalDB
         const byte TABLE_ROW_ID_PREFIX = (byte)'i';  // 0x69  user + tableName -> rowId: int
 
         [Safe]
+        public static ByteString GetColumnTypes(UInt160 user, ByteString tableName) => new StorageMap(USER_TABLE_NAME_TO_COLUMNS_PREFIX).Get(user + tableName);
+        [Safe]
+        public static ByteString GetColumnTypesDropped(UInt160 user, ByteString tableName) => new StorageMap(DROPPED_TABLE_NAME_TO_COLUMNS_PREFIX).Get(user + tableName);
+        [Safe]
+        public static BigInteger GetRowId(UInt160 user, ByteString tableName) => (BigInteger)new StorageMap(TABLE_ROW_ID_PREFIX).Get(user + tableName);
+        [Safe]
         public static Iterator ListTables(UInt160 user, ByteString tableNamePrefix) => new StorageMap(USER_TABLE_NAME_TO_COLUMNS_PREFIX).Find(user + tableNamePrefix);
         [Safe]
         public static Iterator ListAllTables() => new StorageMap(USER_TABLE_NAME_TO_COLUMNS_PREFIX).Find();

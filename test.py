@@ -38,7 +38,7 @@ assert 'SEPARATOR in tableName' in c.invokefunction('createTable', [user, 'testT
 c.invokefunction(
     'createTable', [
         user, 'testTable',
-        Types.Boolean + Types.IntVarLen + Types.ByteStringVarLen + Types.IntFixedLen + b'\x04' + Types.ByteStringFixedLen + b'\x20',
+        column_types := Types.Boolean + Types.IntVarLen + Types.ByteStringVarLen + Types.IntFixedLen + b'\x04' + Types.ByteStringFixedLen + b'\x20',
         # bool, int, str, int32, str(20)
         True
     ])
@@ -51,6 +51,8 @@ assert 'Too long value' in c.invokefunction('writeRow', [user, table_name, [1, 2
 assert 'Too long value' in c.invokefunction('writeRow', [user, table_name, [1, 24852966917239715797923, 'test str', 2**31-1, '0123456789abcdef 0123456789abcdef']], do_not_raise_on_result=True)
 c.invokefunction('writeRow', [user, table_name, [1, 24852966917239715797923, 'test str', 2**31-1, '0123456789abcdef0123456789abcdef']])
 c.invokefunction('writeRow', [user, table_name, [1, 233, 'test str 233', 2**31-2, '12345678901234567890']])
+assert c.invokefunction('getRowId', [user, table_name]) == 3
+assert c.invokefunction('getColumnTypes', [user, table_name]) == column_types.decode()
 
 assert c.invokefunction('getRow', [user, table_name, 1]) == [True, 24852966917239715797923, 'test str', 2147483647, '0123456789abcdef0123456789abcdef']
 assert c.invokefunction('getRow', [user, table_name, 2]) == [True, 233, 'test str 233', 2147483646, '12345678901234567890\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00']
@@ -69,6 +71,8 @@ assert len(c.invokefunction('listTables', [user, ''])) == 0
 assert len(c.invokefunction('listAllTables')) == 0
 assert len(c.invokefunction('listDroppedTables', [user, ''])) == 1
 assert len(c.invokefunction('listAllDroppedTables')) == 1
+assert c.invokefunction('getColumnTypes', [user, table_name]) == None
+assert c.invokefunction('getColumnTypesDropped', [user, table_name]) == column_types.decode()
 
 # be aware that Neo3 allows only storage key <= 64 bytes
 table_name = 'customPrimaryKey'
@@ -102,7 +106,8 @@ assert c.invokefunction('getRows', [user, table_name, [entry[0] for entry in dat
     ['\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', -2],
     ['\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', -3]
 ]
-assert len(c.invokefunction('listRows', [user, table_name])) == 3
+assert len(rows := c.invokefunction('listRows', [user, table_name])) == 3
+print(rows)
 c.invokefunction('deleteRows', [user, table_name, [entry[0] for entry in data]])
 assert len(c.invokefunction('listRows', [user, table_name])) == 0
 
