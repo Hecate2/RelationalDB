@@ -31,12 +31,28 @@ namespace RelationalDB
 
         const byte USER_TABLE_NAME_TO_COLUMNS_PREFIX = (byte)'t';  // 0x74     user + tableName -> columnTypes
         const byte DROPPED_TABLE_NAME_TO_COLUMNS_PREFIX = (byte)'d';  // 0x64  user + tableName -> columnTypes
+        const byte COLUMN_NAME_PREFIX = (byte)'n';  // 0x6e                    user + tableName + SEPARATOR + columnName -> columnId
+        const byte COLUMN_ID_PREFIX = (byte)'c';  // 0x63                      user + tableName + SEPARATOR + columnId -> columnType
+        // Column ID starts from 1
         const string SEPARATOR = "\x00";
         const byte ROWS_PREFIX = (byte)'r';  // 0x72  user + tableName + SEPARATOR + rowId -> data[]
         const byte TABLE_ROW_ID_PREFIX = (byte)'i';  // 0x69  user + tableName -> rowId: int
 
         [Safe]
         public static ByteString GetColumnTypes(UInt160 user, ByteString tableName) => new StorageMap(USER_TABLE_NAME_TO_COLUMNS_PREFIX).Get(user + tableName);
+        [Safe]
+        public static ByteString GetColumnType(UInt160 user, ByteString tableName, BigInteger columnId) => new StorageMap(COLUMN_ID_PREFIX).Get(user + tableName + SEPARATOR + (ByteString)columnId);
+        [Safe]
+        public static Iterator FindColumnNames(UInt160 user, ByteString tableName, ByteString columnNamePrefix) => new StorageMap(COLUMN_NAME_PREFIX).Find(user + tableName + SEPARATOR + columnNamePrefix);
+        [Safe]
+        public static ByteString GetColumnTypeByName(UInt160 user, ByteString tableName, ByteString columnName)
+        {
+            StorageContext context = Storage.CurrentContext;
+            ByteString baseKey = user + tableName + SEPARATOR;
+            return new StorageMap(context, COLUMN_ID_PREFIX)[baseKey +
+                new StorageMap(context, COLUMN_NAME_PREFIX)[baseKey + columnName]
+            ];
+        }
         [Safe]
         public static ByteString GetColumnTypesDropped(UInt160 user, ByteString tableName) => new StorageMap(DROPPED_TABLE_NAME_TO_COLUMNS_PREFIX).Get(user + tableName);
         [Safe]
@@ -63,32 +79,15 @@ namespace RelationalDB
         /// if true, an incremental rowId (starting from 1) is automatically generated for each row
         /// if false, first column is used as primary key. No duplicating primary key allowed
         /// </param>
-        /// <returns></returns>
+        /// <returns>count of columns</returns>
         /// <exception cref="ArgumentOutOfRangeException"></exception>
         /// <exception cref="ArgumentException"></exception>
-        public static void CreateTable(UInt160 user, ByteString tableName, ByteString columnTypes, bool useAutoIncPriKey)
+        public static BigInteger CreateTable(UInt160 user, ByteString tableName, ByteString columnTypes, bool useAutoIncPriKey)
         {
             ExecutionEngine.Assert(Runtime.CheckWitness(user), "witness CreateTable");
             ExecutionEngine.Assert(StdLib.MemorySearch(tableName, SEPARATOR) == -1, "SEPARATOR in tableName");
             if (columnTypes.Length > 256) throw new ArgumentOutOfRangeException("Too many columns");
             if (columnTypes.Length == 0) throw new ArgumentException("No column specified");
-            int l = columnTypes.Length;
-            for (int i = 0; i < l; ++i)
-            {
-                byte type = columnTypes[i];
-                if (type == BOOLEAN || type == INT_VAR_LEN || type == BYTESTRING_VAR_LEN || 
-                    type == UINT160 || type == UINT256)
-                    continue;
-                if (type == INT_FIXED_LEN || type == BYTESTRING_FIXED_LEN)
-                {
-                    ++i;
-                    // now columnTypes[i] refers to the (fixed) length of the value, in count of bytes
-                    if (columnTypes[i] == 0x00)
-                        throw new ArgumentException("Invalid length 0x00");
-                    continue;
-                }
-                throw new ArgumentException("Invalid type " + type);
-            }
 
             StorageContext context = Storage.CurrentContext;
             ByteString key = user + tableName;
@@ -98,11 +97,58 @@ namespace RelationalDB
             StorageMap createdTable = new StorageMap(context, USER_TABLE_NAME_TO_COLUMNS_PREFIX);
             if (createdTable.Get(key) != null)
                 throw new ArgumentException("Table already created");
+
+            int l = columnTypes.Length;
+            BigInteger columnId = 0;
+            for (int i = 0; i < l; ++i)
+            {
+                StorageMap columnTypeMap = new(context, COLUMN_ID_PREFIX);
+                byte type = columnTypes[i];
+                if (type == BOOLEAN || type == INT_VAR_LEN || type == BYTESTRING_VAR_LEN || 
+                    type == UINT160 || type == UINT256)
+                {
+                    columnTypeMap.Put(key + SEPARATOR + (ByteString)(++columnId), type);
+                    continue;
+                }
+                if (type == INT_FIXED_LEN || type == BYTESTRING_FIXED_LEN)
+                {
+                    columnTypeMap.Put(key + SEPARATOR + (ByteString)(++columnId), (ByteString)new byte[] { type, columnTypes[++i] });
+                    // now columnTypes[i] refers to the (fixed) length of the value, in count of bytes
+                    ExecutionEngine.Assert(columnTypes[i] != 0x00, "Invalid length 0x00");
+                    continue;
+                }
+                ExecutionEngine.Assert(false, "Invalid type " + type);
+            }
+
             createdTable.Put(key, columnTypes);
             if (useAutoIncPriKey)
                 new StorageMap(context, TABLE_ROW_ID_PREFIX).Put(key, 1);
             //else
             //    new StorageMap(context, TABLE_ROW_ID_PREFIX).Put(key, 0);
+            return columnId;
+        }
+
+        /// <summary>
+        /// It's the user's responsibility to use a unique name for each column. We do not check it.
+        /// </summary>
+        /// <param name="user"></param>
+        /// <param name="tableName"></param>
+        /// <param name="columnNames"></param>
+        public static void SetColumnNames(UInt160 user, ByteString tableName, ByteString[] columnNames)
+        {
+            ExecutionEngine.Assert(Runtime.CheckWitness(user), "witness SetColumnName");
+            StorageContext context = Storage.CurrentContext;
+            StorageMap columnNameMap = new(context, COLUMN_NAME_PREFIX);
+            StorageMap columnTypeMap = new(context, COLUMN_ID_PREFIX);
+            int i = 1;
+            BigInteger namesLength = columnNames.Length;
+            ByteString baseKey = user + tableName + SEPARATOR;
+            while (i <= namesLength)
+            {
+                ExecutionEngine.Assert(columnTypeMap[baseKey + (ByteString)(BigInteger)i] != null, "No column " + i);
+                columnNameMap.Put(baseKey + columnNames[i-1], i);
+                i++;
+            }
         }
 
         public static void DropTable(UInt160 user, ByteString tableName)
