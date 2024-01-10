@@ -112,6 +112,7 @@ namespace RelationalDB
             new StorageMap(context, DROPPED_TABLE_NAME_TO_COLUMNS_PREFIX).Put(key, columnTypes);
         }
 
+        [Safe]
         public static ByteString EncodeSingle(object data, byte type, BigInteger length)
         {
             switch (type)
@@ -134,6 +135,24 @@ namespace RelationalDB
             }
         }
 
+        [Safe]
+        public static ByteString EncodeRow(object[] row, byte[] columnTypes)
+        {
+            int rowIndexer = 0, columnTypesIndexer = 0;
+            BigInteger rowLength = row.Length, columnTypesLength = columnTypes.Length;
+            ByteString writeContent = "";
+            while (columnTypesIndexer < columnTypesLength)
+            {
+                ExecutionEngine.Assert(rowIndexer < rowLength, "Wrong count of columns: rowIndexer=" + rowIndexer);
+                byte type = columnTypes[columnTypesIndexer++];
+                if (type == INT_FIXED_LEN || type == BYTESTRING_FIXED_LEN)
+                    writeContent += EncodeSingle(row[rowIndexer++], type, columnTypes[columnTypesIndexer++]);
+                else
+                    writeContent += EncodeSingle(row[rowIndexer++], type, 0);
+            }
+            return writeContent;
+        }
+
         /// <summary>
         /// 
         /// </summary>
@@ -144,13 +163,12 @@ namespace RelationalDB
         public static void WriteRow(UInt160 user, ByteString tableName, object[] row)
         {
             ExecutionEngine.Assert(Runtime.CheckWitness(user), "witness WriteRow");
-            ExecutionEngine.Assert(row.Length > 0, "No row");
+            BigInteger rowLength = row.Length;
+            ExecutionEngine.Assert(rowLength > 0, "No row");
             StorageContext context = Storage.CurrentContext;
             ByteString key = user + tableName;
 
-            ByteString columnTypes = new StorageMap(context, USER_TABLE_NAME_TO_COLUMNS_PREFIX)[key];
-            BigInteger columnTypesLength = columnTypes.Length;
-            BigInteger rowLength = row.Length;
+            byte[] columnTypes = (byte[])new StorageMap(context, USER_TABLE_NAME_TO_COLUMNS_PREFIX)[key];
             int columnTypesIndexer = 0;
             int rowIndexer = 0;
 
@@ -169,19 +187,63 @@ namespace RelationalDB
             else
                 primaryKey = rowId;
 
-            ByteString writeContent = "";
-            while (columnTypesIndexer < columnTypesLength)
-            {
-                ExecutionEngine.Assert(rowIndexer < rowLength, "Wrong count of columns: rowIndexer=" + rowIndexer);
-                byte type = columnTypes[columnTypesIndexer++];
-                if (type == INT_FIXED_LEN || type == BYTESTRING_FIXED_LEN)
-                    writeContent += EncodeSingle(row[rowIndexer++], type, columnTypes[columnTypesIndexer++]);
-                else
-                    writeContent += EncodeSingle(row[rowIndexer++], type, 0);
-            }
-            new StorageMap(context, ROWS_PREFIX).Put(key + SEPARATOR + primaryKey, writeContent);
+            // NC2010: The type object[] does not support range access.
+            // Cannot write row[rowIndexer..]
+            List<object> rowWithoutPrimaryKey = new();
+            while(rowIndexer < rowLength)
+                rowWithoutPrimaryKey.Add(row[rowIndexer++]);
+            new StorageMap(context, ROWS_PREFIX).Put(key + SEPARATOR + primaryKey,
+                EncodeRow(rowWithoutPrimaryKey, columnTypes[columnTypesIndexer..]));
             if (rowId != null)
                 tableRowId.Put(key, (BigInteger)rowId + 1);
+        }
+
+        /// <summary>
+        /// Re-entrancy risk!
+        /// </summary>
+        /// <param name="user"></param>
+        /// <param name="tableName"></param>
+        /// <param name="rows"></param>
+        public static void WriteRows(UInt160 user, ByteString tableName, object[][] rows)
+        {
+            ExecutionEngine.Assert(Runtime.CheckWitness(user), "witness WriteRow");
+            ExecutionEngine.Assert(rows.Length > 0, "No rows");
+            StorageContext context = Storage.CurrentContext;
+            ByteString key = user + tableName;
+            byte[] columnTypes = (byte[])new StorageMap(context, USER_TABLE_NAME_TO_COLUMNS_PREFIX)[key];
+            BigInteger rowLength = rows[0].Length;
+            // whether this table use auto-increment primary key
+            StorageMap tableRowId = new StorageMap(context, TABLE_ROW_ID_PREFIX);
+            ByteString rowId = tableRowId[key];
+
+            foreach (object[] row in rows)
+            {
+                ExecutionEngine.Assert(row.Length == rowLength, "Inconsistent row length");
+                int columnTypesIndexer = 0;
+                int rowIndexer = 0;
+
+                ByteString primaryKey;
+                if (rowId == null)
+                {
+                    byte type = columnTypes[columnTypesIndexer++];
+                    if (type == INT_FIXED_LEN || type == BYTESTRING_FIXED_LEN)
+                        primaryKey = EncodeSingle(row[rowIndexer++], type, columnTypes[columnTypesIndexer++]);
+                    else
+                        primaryKey = EncodeSingle(row[rowIndexer++], type, 0);
+                }
+                else
+                    primaryKey = rowId;
+
+                // NC2010: The type object[] does not support range access.
+                // Cannot write row[rowIndexer..]
+                List<object> rowWithoutPrimaryKey = new();
+                while (rowIndexer < rowLength)
+                    rowWithoutPrimaryKey.Add(row[rowIndexer++]);
+                new StorageMap(context, ROWS_PREFIX).Put(key + SEPARATOR + primaryKey,
+                    EncodeRow(rowWithoutPrimaryKey, columnTypes[columnTypesIndexer..]));
+                if (rowId != null)
+                    tableRowId.Put(key, (BigInteger)rowId + 1);
+            }
         }
 
         public static void DeleteRow(UInt160 user, ByteString tableName, ByteString primaryKey)
@@ -189,7 +251,20 @@ namespace RelationalDB
             ExecutionEngine.Assert(Runtime.CheckWitness(user), "witness DeleteRow");
             new StorageMap(ROWS_PREFIX).Delete(user + tableName + SEPARATOR + primaryKey);
         }
+        /// <summary>
+        /// Re-entrancy risk!
+        /// </summary>
+        /// <param name="user"></param>
+        /// <param name="tableName"></param>
+        /// <param name="primaryKeys"></param>
+        public static void DeleteRows(UInt160 user, ByteString tableName, ByteString[] primaryKeys)
+        {
+            ExecutionEngine.Assert(Runtime.CheckWitness(user), "witness DeleteRow");
+            foreach (ByteString primaryKey in primaryKeys)
+                new StorageMap(ROWS_PREFIX).Delete(user + tableName + SEPARATOR + primaryKey);
+        }
 
+        [Safe]
         public static (object, byte[]) DecodeSingle(byte[] encoded, byte type, byte length)
         {
             switch (type)
@@ -214,36 +289,13 @@ namespace RelationalDB
 
         }
 
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="user"></param>
-        /// <param name="tableName"></param>
-        /// <param name="primaryKey">rowId or content of 1st column</param>
-        /// <returns></returns>
-        /// <exception cref="ArgumentException"></exception>
-        public static object[] GetRow(UInt160 user, ByteString tableName, object primaryKey)
+        [Safe]
+        public static List<object> DecodeRow(byte[] data, byte[] columnTypes) => DecodeRow(data, columnTypes, new List<object>());
+        [Safe]
+        public static List<object> DecodeRow(byte[] data, byte[] columnTypes, List<object> row)
         {
-            StorageContext context = Storage.CurrentContext;
-            ByteString key = user + tableName;
-            ByteString columnTypes = new StorageMap(context, USER_TABLE_NAME_TO_COLUMNS_PREFIX)[key];
-            if (columnTypes == null)
-                throw new ArgumentException("No table");
-            ByteString rowId = new StorageMap(context, TABLE_ROW_ID_PREFIX)[key];
             BigInteger columnTypesLength = columnTypes.Length;
-            byte[] data = (byte[])new StorageMap(context, ROWS_PREFIX)[key + SEPARATOR + (ByteString)primaryKey];
-            if (data == null)
-                throw new ArgumentException("No data");
-            List<object> row = new();
             int columnTypesIndexer = 0;
-            if (rowId == null)
-            {
-                // skip the first column of columnTypes, because it is the primary key
-                byte primaryKeyType = columnTypes[columnTypesIndexer++];
-                if (primaryKeyType == INT_FIXED_LEN || primaryKeyType == BYTESTRING_FIXED_LEN)
-                    columnTypesIndexer++;
-                row.Add(primaryKey);
-            }
             while (columnTypesIndexer < columnTypesLength)
             {
                 byte type = columnTypes[columnTypesIndexer++];
@@ -284,6 +336,70 @@ namespace RelationalDB
             return row;
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="user"></param>
+        /// <param name="tableName"></param>
+        /// <param name="primaryKey">rowId or content of 1st column</param>
+        /// <returns></returns>
+        /// <exception cref="ArgumentException"></exception>
+        public static object[] GetRow(UInt160 user, ByteString tableName, ByteString primaryKey)
+        {
+            StorageContext context = Storage.CurrentContext;
+            ByteString key = user + tableName;
+            byte[] columnTypes = (byte[])new StorageMap(context, USER_TABLE_NAME_TO_COLUMNS_PREFIX)[key];
+            if (columnTypes == null)
+                throw new ArgumentException("No table");
+            ByteString rowId = new StorageMap(context, TABLE_ROW_ID_PREFIX)[key];
+            byte[] data = (byte[])new StorageMap(context, ROWS_PREFIX)[key + SEPARATOR + primaryKey];
+            if (data == null)
+                throw new ArgumentException("No data");
+            List<object> row = new();
+            int columnTypesIndexer = 0;
+            if (rowId == null)
+            {
+                // skip the first column of columnTypes, because it is the primary key
+                byte primaryKeyType = columnTypes[columnTypesIndexer++];
+                if (primaryKeyType == INT_FIXED_LEN || primaryKeyType == BYTESTRING_FIXED_LEN)
+                    columnTypesIndexer++;
+                row.Add(primaryKey);
+            }
+            return DecodeRow(data, columnTypes[columnTypesIndexer..], row);
+        }
+
+        public static object[][] GetRows(UInt160 user, ByteString tableName, object[] primaryKeys)
+        {
+            StorageContext context = Storage.CurrentContext;
+            ByteString key = user + tableName;
+            byte[] columnTypes = (byte[])new StorageMap(context, USER_TABLE_NAME_TO_COLUMNS_PREFIX)[key];
+            if (columnTypes == null)
+                throw new ArgumentException("No table");
+            ByteString rowId = new StorageMap(context, TABLE_ROW_ID_PREFIX)[key];
+
+            List<object[]> result = new();
+            foreach(object primaryKey in primaryKeys)
+            {
+                byte[] data = (byte[])new StorageMap(context, ROWS_PREFIX)[key + SEPARATOR + (ByteString)primaryKey];
+                ExecutionEngine.Assert(data != null, "No data");
+                List<object> row = new();
+                int columnTypesIndexer = 0;
+                if (rowId == null)
+                {
+                    // skip the first column of columnTypes, because it is the primary key
+                    byte primaryKeyType = columnTypes[columnTypesIndexer++];
+                    if (primaryKeyType == INT_FIXED_LEN || primaryKeyType == BYTESTRING_FIXED_LEN)
+                        columnTypesIndexer++;
+                    row.Add(primaryKey);
+                }
+                result.Add(DecodeRow(data, columnTypes[columnTypesIndexer..], row));
+            }
+            return result;
+        }
+
+        public static Iterator ListRows(UInt160 user, ByteString tableName) => new StorageMap(ROWS_PREFIX).Find(user + tableName, FindOptions.RemovePrefix);
+
+        [Safe]
         public static ByteString EncodeInteger(BigInteger i) => EncodeByteString((ByteString)i);
 
         /// <summary>
@@ -292,6 +408,7 @@ namespace RelationalDB
         /// <param name="value"></param>
         /// <returns>length(64bits; 8 bytes) + value</returns>
         /// <exception cref="ArgumentException"></exception>
+        [Safe]
         public static ByteString EncodeByteString(ByteString value)
         {
             ByteString length = (ByteString)(BigInteger)value.Length;
@@ -306,6 +423,7 @@ namespace RelationalDB
             // length is little-endian. \x00 should be appended after it.
         }
 
+        [Safe]
         public static (ByteString, byte[]) DecodeByteString(byte[] encoded)
         {
             int length = (int)(BigInteger)(ByteString)encoded[0..LengthOfLength];
@@ -313,12 +431,14 @@ namespace RelationalDB
             return ((ByteString)encoded[LengthOfLength..contentEndingIndex], encoded[contentEndingIndex..]);
         }
 
+        [Safe]
         public static (BigInteger, byte[]) DecodeInteger(byte[] encoded)
         {
             (ByteString, byte[]) result = DecodeByteString(encoded);
             return ((BigInteger)result.Item1, result.Item2);
         }
 
+        [Safe]
         public static ByteString EncodeIntegerFixedLength(BigInteger i, BigInteger fixedLength)
         {
             ByteString data = (ByteString)i;
@@ -334,6 +454,8 @@ namespace RelationalDB
             }
             return data;
         }
+
+        [Safe]
         public static ByteString EncodeByteStringFixedLength(ByteString data, BigInteger fixedLength)
         {
             BigInteger lengthToComplement = fixedLength - data.Length;
@@ -348,12 +470,16 @@ namespace RelationalDB
             }
             return data;
         }
+
+        [Safe]
         public static (ByteString, byte[]) DecodeByteStringFixedLength(byte[] encoded, int fixedLength)
         {
             ByteString d = (ByteString)encoded[..fixedLength];
             encoded = encoded[fixedLength..];
             return (d, encoded);
         }
+
+        [Safe]
         public static (BigInteger, byte[]) DecodeIntegerFixedLength(byte[] encoded, int fixedLength)
         {
             (ByteString d, encoded) = DecodeByteStringFixedLength(encoded, fixedLength);

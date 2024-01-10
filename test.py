@@ -2,16 +2,21 @@ from neo_fairy_client import FairyClient, Hash160Str, Hash256Str
 from enum import Enum
 
 user = Hash160Str('0xb1983fa2479a0c8e2beae032d2df564b5451b7a5')
-c = FairyClient(fairy_session='RelationalDB', wallet_address_or_scripthash=user, with_print=False)
+main_session = 'RelationalDB'
+c = FairyClient(fairy_session=main_session, wallet_address_or_scripthash=user, with_print=False)
 c.virutal_deploy_from_path('./bin/sc/RelationalDB.nef')
-print(result := c.invokefunction('encodeInteger', [12345678]))
+assert (result := c.invokefunction('encodeInteger', [12345678])) == b'\x04\x00\x00\x00\x00\x00\x00\x00Na\xbc\x00'
 assert c.invokefunction('decodeInteger', [result]) == (12345678, '')
-print(result := c.invokefunction('encodeInteger', [-12345678]))
+assert (result := c.invokefunction('encodeInteger', [-12345678])) == b'\x04\x00\x00\x00\x00\x00\x00\x00\xb2\x9eC\xff'
 assert c.invokefunction('decodeInteger', [result]) == (-12345678, '')
 assert len(c.invokefunction('encodeInteger', [-1])) == 9
 assert len(c.invokefunction('encodeInteger', [-2**33])) == 13
 assert c.invokefunction('encodeIntegerFixedLength', [-1, 4]) == b'\xff\xff\xff\xff'
 assert c.invokefunction('decodeIntegerFixedLength', [c.invokefunction('encodeIntegerFixedLength', [-1, 4]), 4]) == (-1, '')
+assert 'Too long value' in c.invokefunction('encodeIntegerFixedLength', [2**31, 4], do_not_raise_on_result=True)
+assert 'Too long value' in c.invokefunction('encodeIntegerFixedLength', [-2**31-1, 4], do_not_raise_on_result=True)
+assert c.invokefunction('decodeIntegerFixedLength', [c.invokefunction('encodeIntegerFixedLength', [2**31-1, 4]), 4]) == (2**31-1, '')
+assert c.invokefunction('decodeIntegerFixedLength', [c.invokefunction('encodeIntegerFixedLength', [-2**31, 4]), 4]) == (-2**31, '')
 
 
 class Types(bytes, Enum):
@@ -50,10 +55,13 @@ c.invokefunction('writeRow', [user, table_name, [1, 233, 'test str 233', 2**31-2
 assert c.invokefunction('getRow', [user, table_name, 1]) == [True, 24852966917239715797923, 'test str', 2147483647, '0123456789abcdef0123456789abcdef']
 assert c.invokefunction('getRow', [user, table_name, 2]) == [True, 233, 'test str 233', 2147483646, '12345678901234567890\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00']
 assert 'No data' in c.invokefunction('getRow', [user, table_name, 0], do_not_raise_on_result=True)
+assert len(c.invokefunction('listRows', [user, table_name])) == 2
 
 c.invokefunction('deleteRow', [user, table_name, 1])
 c.invokefunction('deleteRow', [user, table_name, 2])
+assert len(c.invokefunction('listRows', [user, table_name])) == 0
 c.invokefunction('deleteRow', [user, table_name, 0])  # no id 0, but should not raise error
+assert len(c.invokefunction('listRows', [user, table_name])) == 0
 
 c.invokefunction('dropTable', [user, table_name])
 assert 'No table' in c.invokefunction('getRow', [user, table_name, 1], do_not_raise_on_result=True)
@@ -75,8 +83,30 @@ data = [
     [Hash160Str('0x'+'00'*19+'01'), Hash256Str('0x'+'00'*31+'01'), -2],
     [Hash160Str('0x'+'00'*19+'02'), Hash256Str('0x'+'00'*31+'02'), -3],
 ]
+
+c.copy_snapshot(main_session, single_write_session := 'singleWrite')
+c.fairy_session = single_write_session
 for row in data:
     c.invokefunction('writeRow', [user, table_name, row])
 assert c.invokefunction('getRow', [user, table_name, data[0][0]]) == ['\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', 1]
 assert c.invokefunction('getRow', [user, table_name, data[1][0]]) == ['\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', -2]
 assert c.invokefunction('getRow', [user, table_name, data[2][0]]) == ['\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', -3]
+
+c.fairy_session = main_session
+c.invokefunction('writeRows', [user, table_name, data])
+assert c.invokefunction('getRow', [user, table_name, data[0][0]]) == ['\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', 1]
+assert c.invokefunction('getRow', [user, table_name, data[1][0]]) == ['\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', -2]
+assert c.invokefunction('getRow', [user, table_name, data[2][0]]) == ['\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', -3]
+assert c.invokefunction('getRows', [user, table_name, [entry[0] for entry in data]]) == [
+    ['\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', 1],
+    ['\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', -2],
+    ['\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', -3]
+]
+assert len(c.invokefunction('listRows', [user, table_name])) == 3
+c.invokefunction('deleteRows', [user, table_name, [entry[0] for entry in data]])
+assert len(c.invokefunction('listRows', [user, table_name])) == 0
+
+coverage = c.get_contract_opcode_coverage()
+uncovered = {k:v for k, v in coverage.items() if not v}
+# print(uncovered)
+print(f'Coverage: {(len(coverage)-len(uncovered))/len(coverage)}')
