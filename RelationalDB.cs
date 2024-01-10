@@ -292,7 +292,6 @@ namespace RelationalDB
                 default:
                     throw new ArgumentException("Unsupported type " + type);
             }
-
         }
 
         [Safe]
@@ -305,38 +304,15 @@ namespace RelationalDB
             while (columnTypesIndexer < columnTypesLength)
             {
                 byte type = columnTypes[columnTypesIndexer++];
-                switch (type)
+                if (type == INT_FIXED_LEN || type == BYTESTRING_FIXED_LEN)
                 {
-                    case BOOLEAN:
-                        row.Add(data[0] > 0 ? true : false);
-                        data = data[1..];
-                        break;
-                    case UINT160:
-                        row.Add(data[..20]);
-                        data = data[20..];
-                        break;
-                    case UINT256:
-                        row.Add(data[..32]);
-                        data = data[32..];
-                        break;
-                    case INT_VAR_LEN:
-                        (BigInteger i, data) = DecodeInteger(data);
-                        row.Add(i);
-                        break;
-                    case BYTESTRING_VAR_LEN:
-                        (ByteString s, data) = DecodeByteString(data);
-                        row.Add(s);
-                        break;
-                    case INT_FIXED_LEN:
-                        (BigInteger iFixed, data) = DecodeIntegerFixedLength(data, columnTypes[columnTypesIndexer++]);
-                        row.Add(iFixed);
-                        break;
-                    case BYTESTRING_FIXED_LEN:
-                        (ByteString sFixed, data) = DecodeByteStringFixedLength(data, columnTypes[columnTypesIndexer++]);
-                        row.Add(sFixed);
-                        break;
-                    default:
-                        throw new ArgumentException("Unsupported type " +  type);
+                    (object decoded, data) = DecodeSingle(data, type, columnTypes[columnTypesIndexer++]);
+                    row.Add(decoded);
+                }
+                else
+                {
+                    (object decoded, data) = DecodeSingle(data, type, 0);
+                    row.Add(decoded);
                 }
             }
             return row;
@@ -367,14 +343,17 @@ namespace RelationalDB
             {
                 // skip the first column of columnTypes, because it is the primary key
                 byte primaryKeyType = columnTypes[columnTypesIndexer++];
+                object result;
                 if (primaryKeyType == INT_FIXED_LEN || primaryKeyType == BYTESTRING_FIXED_LEN)
-                    columnTypesIndexer++;
-                row.Add(primaryKey);
+                    (result, _) = DecodeSingle((byte[])primaryKey, primaryKeyType, columnTypes[columnTypesIndexer++]);
+                else
+                    (result, _) = DecodeSingle((byte[])primaryKey, primaryKeyType, 0);
+                row.Add(result);
             }
             return DecodeRow(data, columnTypes[columnTypesIndexer..], row);
         }
 
-        public static object[][] GetRows(UInt160 user, ByteString tableName, object[] primaryKeys)
+        public static object[][] GetRows(UInt160 user, ByteString tableName, ByteString[] primaryKeys)
         {
             StorageContext context = Storage.CurrentContext;
             ByteString key = user + tableName;
@@ -383,10 +362,10 @@ namespace RelationalDB
                 throw new ArgumentException("No table");
             ByteString rowId = new StorageMap(context, TABLE_ROW_ID_PREFIX)[key];
 
-            List<object[]> result = new();
-            foreach(object primaryKey in primaryKeys)
+            List<object[]> resultRows = new();
+            foreach(ByteString primaryKey in primaryKeys)
             {
-                byte[] data = (byte[])new StorageMap(context, ROWS_PREFIX)[key + SEPARATOR + (ByteString)primaryKey];
+                byte[] data = (byte[])new StorageMap(context, ROWS_PREFIX)[key + SEPARATOR + primaryKey];
                 ExecutionEngine.Assert(data != null, "No data");
                 List<object> row = new();
                 int columnTypesIndexer = 0;
@@ -394,13 +373,16 @@ namespace RelationalDB
                 {
                     // skip the first column of columnTypes, because it is the primary key
                     byte primaryKeyType = columnTypes[columnTypesIndexer++];
+                    object result;
                     if (primaryKeyType == INT_FIXED_LEN || primaryKeyType == BYTESTRING_FIXED_LEN)
-                        columnTypesIndexer++;
-                    row.Add(primaryKey);
+                        (result, _) = DecodeSingle((byte[])primaryKey, primaryKeyType, columnTypes[columnTypesIndexer++]);
+                    else
+                        (result, _) = DecodeSingle((byte[])primaryKey, primaryKeyType, 0);
+                    row.Add(result);
                 }
-                result.Add(DecodeRow(data, columnTypes[columnTypesIndexer..], row));
+                resultRows.Add(DecodeRow(data, columnTypes[columnTypesIndexer..], row));
             }
-            return result;
+            return resultRows;
         }
 
         public static Iterator ListRows(UInt160 user, ByteString tableName) => new StorageMap(ROWS_PREFIX).Find(user + tableName, FindOptions.RemovePrefix);

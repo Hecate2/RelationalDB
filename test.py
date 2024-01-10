@@ -29,7 +29,9 @@ class Types(bytes, Enum):
     ByteStringFixedLen = b'\x38'
     
     def __add__(self, other):
-        return self.value + other.value
+        if type(other) == type(self):
+            return self.value + other.value
+        return self.value + other
 
 
 table_name = 'testTable'
@@ -49,12 +51,13 @@ assert len(c.invokefunction('listAllDroppedTables')) == 0
 
 assert 'Too long value' in c.invokefunction('writeRow', [user, table_name, [1, 24852966917239715797923, 'test str', 2**31, '0123456789']], do_not_raise_on_result=True)
 assert 'Too long value' in c.invokefunction('writeRow', [user, table_name, [1, 24852966917239715797923, 'test str', 2**31-1, '0123456789abcdef 0123456789abcdef']], do_not_raise_on_result=True)
-c.invokefunction('writeRow', [user, table_name, [1, 24852966917239715797923, 'test str', 2**31-1, '0123456789abcdef0123456789abcdef']])
+c.invokefunction('writeRow', [user, table_name, [0, 24852966917239715797923, 'test str', 2**31-1, '0123456789abcdef0123456789abcdef']])
 c.invokefunction('writeRow', [user, table_name, [1, 233, 'test str 233', 2**31-2, '12345678901234567890']])
 assert c.invokefunction('getRowId', [user, table_name]) == 3
 assert c.invokefunction('getColumnTypes', [user, table_name]) == column_types.decode()
+assert c.invokefunction('getRows', [user, table_name, [1, 2]]) == [[False, 24852966917239715797923, 'test str', 2147483647, '0123456789abcdef0123456789abcdef'], [True, 233, 'test str 233', 2147483646, '12345678901234567890\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00']]
 
-assert c.invokefunction('getRow', [user, table_name, 1]) == [True, 24852966917239715797923, 'test str', 2147483647, '0123456789abcdef0123456789abcdef']
+assert c.invokefunction('getRow', [user, table_name, 1]) == [False, 24852966917239715797923, 'test str', 2147483647, '0123456789abcdef0123456789abcdef']
 assert c.invokefunction('getRow', [user, table_name, 2]) == [True, 233, 'test str 233', 2147483646, '12345678901234567890\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00']
 assert 'No data' in c.invokefunction('getRow', [user, table_name, 0], do_not_raise_on_result=True)
 assert len(c.invokefunction('listRows', [user, table_name])) == 2
@@ -107,11 +110,32 @@ assert c.invokefunction('getRows', [user, table_name, [entry[0] for entry in dat
     ['\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', -3]
 ]
 assert len(rows := c.invokefunction('listRows', [user, table_name])) == 3
-print(rows)
+# print(rows)
 c.invokefunction('deleteRows', [user, table_name, [entry[0] for entry in data]])
 assert len(c.invokefunction('listRows', [user, table_name])) == 0
 
-coverage = c.get_contract_opcode_coverage()
-uncovered = {k:v for k, v in coverage.items() if not v}
-# print(uncovered)
-print(f'Coverage: {(len(coverage)-len(uncovered))/len(coverage)}')
+table_name = 'FixedLenPrimaryKey'
+c.invokefunction(
+    'createTable', [
+        user, table_name,
+        Types.IntFixedLen + b'\x04' + Types.IntFixedLen + b'\x04',
+        False
+    ])
+c.invokefunction('writeRows', [user, table_name, data := [
+    [0x04030201, -1],
+    [0x04030202, -2],
+    [0x04030203, -3],
+]])
+assert c.invokefunction('getRows', [user, table_name, [d[0] for d in data]]) == data
+c.invokefunction('writeRow', [user, table_name, [0x04030204, -4]])
+assert c.invokefunction('getRow', [user, table_name, data[0][0]]) == data[0]
+assert c.invokefunction('getRow', [user, table_name, 0x04030204]) == [0x04030204, -4]
+
+coverage = {k: v for k, v in c.get_contract_source_code_coverage().items() if 'Undefined' not in k}
+opcode_count = sum(len(v) for v in coverage.values())
+uncovered = {k: {opcode: covered for opcode, covered in v.items() if covered == False} for k, v in coverage.items() if not all(v.values())}
+uncovered_count = sum(len(v) for v in uncovered.values())
+for k, v in uncovered.items():
+    print(f"{k}:")
+    print(f"\t{v}")
+print(f'Coverage: {(opcode_count-uncovered_count)/opcode_count}=={opcode_count-uncovered_count}/{opcode_count}')
