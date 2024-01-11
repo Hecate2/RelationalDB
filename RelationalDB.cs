@@ -15,12 +15,12 @@ namespace RelationalDB
     [ManifestExtra("Description", "This is a RelationalDB")]
     public class RelationalDB : SmartContract
     {
-        const int LengthOfLength = 8;
+        //const int LengthOfLength = 2;  // Neo3 allows only value <= 65535 == 2**16-1 bytes
 
         const byte UINT160 = 0x10;
         const byte UINT256 = 0x11;
         const byte BOOLEAN = 0x20;
-        const byte INT_VAR_LEN = 0x21;
+        const byte INT_VAR_LEN = 0x21;   // Neo3 only allows BigInteger <= 32 bytes to be decoded
         const byte BYTESTRING_VAR_LEN = 0x28;
         const byte INT_FIXED_LEN = 0x31;
         const byte BYTESTRING_FIXED_LEN = 0x38;
@@ -440,29 +440,34 @@ namespace RelationalDB
         /// 
         /// </summary>
         /// <param name="value"></param>
-        /// <returns>length(64bits; 8 bytes) + value</returns>
+        /// <returns>value.Length(16bits/2bytes unsigned int) + value</returns>
         /// <exception cref="ArgumentException"></exception>
         [Safe]
         public static ByteString EncodeByteString(ByteString value)
         {
-            ByteString length = (ByteString)(BigInteger)value.Length;
-            BigInteger lengthToComplement = LengthOfLength - length.Length;
-            //if (lengthToComplement == 0)  // not likely to happen
-            //    return length + value;
-            if (lengthToComplement < 0) throw new ArgumentOutOfRangeException("Integer too large");
-            ByteString suffix = "";
-            for (; lengthToComplement > 0; --lengthToComplement)
-                suffix += new byte[] { 0x00 };
-            return length + suffix + value;
-            // length is little-endian. \x00 should be appended after it.
+            BigInteger lengthInt = (BigInteger)value.Length;
+            ByteString length = (ByteString)lengthInt;
+            switch (length.Length)
+            {
+                case 1:
+                    return length + "\x00" + value;
+                    // length is little-endian. \x00 should be appended after it.
+                case 2:
+                    return length + value;
+                case 3:
+                    if (lengthInt <= 65535)
+                        return (ByteString)new byte[] { length[0], length[1] } + value;
+                    goto default;
+                default:
+                    throw new ArgumentOutOfRangeException("Too long " + length.Length);
+            }
         }
 
         [Safe]
         public static (ByteString, byte[]) DecodeByteString(byte[] encoded)
         {
-            int length = (int)(BigInteger)(ByteString)encoded[0..LengthOfLength];
-            int contentEndingIndex = LengthOfLength + length;
-            return ((ByteString)encoded[LengthOfLength..contentEndingIndex], encoded[contentEndingIndex..]);
+            int length = (int)(BigInteger)(ByteString)(new byte[] { encoded[0], encoded[1], 0x00 });
+            return ((ByteString)encoded[2..(2+length)], encoded[(2+length)..]);
         }
 
         [Safe]

@@ -5,12 +5,16 @@ user = Hash160Str('0xb1983fa2479a0c8e2beae032d2df564b5451b7a5')
 main_session = 'RelationalDB'
 c = FairyClient(fairy_session=main_session, wallet_address_or_scripthash=user, with_print=False)
 c.virutal_deploy_from_path('./bin/sc/RelationalDB.nef')
-assert (result := c.invokefunction('encodeInteger', [12345678])) == b'\x04\x00\x00\x00\x00\x00\x00\x00Na\xbc\x00'
+assert (result := c.invokefunction('encodeInteger', [12345678])) == b'\x04\x00Na\xbc\x00'
 assert c.invokefunction('decodeInteger', [result]) == (12345678, '')
-assert (result := c.invokefunction('encodeInteger', [-12345678])) == b'\x04\x00\x00\x00\x00\x00\x00\x00\xb2\x9eC\xff'
+assert (result := c.invokefunction('encodeInteger', [-12345678])) == b'\x04\x00\xb2\x9eC\xff'
 assert c.invokefunction('decodeInteger', [result]) == (-12345678, '')
-assert len(c.invokefunction('encodeInteger', [-1])) == 9
-assert len(c.invokefunction('encodeInteger', [-2**33])) == 13
+assert len(c.invokefunction('encodeInteger', [-1])) == 3
+assert len(c.invokefunction('encodeInteger', [-2**33])) == 7
+assert len(result := c.invokefunction('encodeInteger', ['\x00'*32+'\x01'])) == 35
+assert 'MaxSize exceed: 33' in c.invokefunction('decodeInteger', [result], do_not_raise_on_result=True)
+assert len(c.invokefunction('encodeByteString', ['\x00'*0x0100])) == 0x0102
+assert len(c.invokefunction('encodeByteString', ['\x00'*0x8000])) == 0x8002
 assert c.invokefunction('encodeIntegerFixedLength', [0x017b, 4]).encode() == b'\x7b\x01\x00\x00'
 assert c.invokefunction('encodeIntegerFixedLength', [-1, 4]) == b'\xff\xff\xff\xff'
 assert c.invokefunction('decodeIntegerFixedLength', [c.invokefunction('encodeIntegerFixedLength', [-1, 4]), 4]) == (-1, '')
