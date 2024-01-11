@@ -13,13 +13,14 @@ namespace RelationalDB
     [ManifestExtra("Author", "Hecate2")]
     [ManifestExtra("Email", "developer@neo.org")]
     [ManifestExtra("Description", "This is a RelationalDB")]
-    public class RelationalDB : SmartContract
+    public partial class RelationalDB : SmartContract
     {
         //const int LengthOfLength = 2;  // Neo3 allows only value <= 65535 == 2**16-1 bytes
 
         const byte UINT160 = 0x10;
         const byte UINT256 = 0x11;
         const byte BOOLEAN = 0x20;
+        // INT_VAR_LEN costs additional 2 bytes in storage
         const byte INT_VAR_LEN = 0x21;   // Neo3 only allows BigInteger <= 32 bytes to be decoded
         const byte BYTESTRING_VAR_LEN = 0x28;
         const byte INT_FIXED_LEN = 0x31;
@@ -41,7 +42,7 @@ namespace RelationalDB
         [Safe]
         public static ByteString GetColumnTypes(UInt160 user, ByteString tableName) => new StorageMap(USER_TABLE_NAME_TO_COLUMNS_PREFIX).Get(user + tableName);
         [Safe]
-        public static ByteString GetColumnType(UInt160 user, ByteString tableName, BigInteger columnId) => new StorageMap(COLUMN_ID_PREFIX).Get(user + tableName + SEPARATOR + (ByteString)columnId);
+        public static ByteString GetColumnType(UInt160 user, ByteString tableName, byte columnId) => new StorageMap(COLUMN_ID_PREFIX).Get(user + tableName + SEPARATOR + (ByteString)new byte[] { columnId });
         [Safe]
         public static Iterator FindColumnNames(UInt160 user, ByteString tableName, ByteString columnNamePrefix) => new StorageMap(COLUMN_NAME_PREFIX).Find(user + tableName + SEPARATOR + columnNamePrefix);
         [Safe]
@@ -86,7 +87,7 @@ namespace RelationalDB
         {
             ExecutionEngine.Assert(Runtime.CheckWitness(user), "witness CreateTable");
             ExecutionEngine.Assert(StdLib.MemorySearch(tableName, SEPARATOR) == -1, "SEPARATOR in tableName");
-            if (columnTypes.Length > 256) throw new ArgumentOutOfRangeException("Too many columns");
+            if (columnTypes.Length >= 256) throw new ArgumentOutOfRangeException("Too many columns");
             if (columnTypes.Length == 0) throw new ArgumentException("No column specified");
 
             StorageContext context = Storage.CurrentContext;
@@ -99,7 +100,7 @@ namespace RelationalDB
                 throw new ArgumentException("Table already created");
 
             int l = columnTypes.Length;
-            BigInteger columnId = 0;
+            byte columnId = 0;
             for (int i = 0; i < l; ++i)
             {
                 StorageMap columnTypeMap = new(context, COLUMN_ID_PREFIX);
@@ -107,12 +108,12 @@ namespace RelationalDB
                 if (type == BOOLEAN || type == INT_VAR_LEN || type == BYTESTRING_VAR_LEN || 
                     type == UINT160 || type == UINT256)
                 {
-                    columnTypeMap.Put(key + SEPARATOR + (ByteString)(++columnId), type);
+                    columnTypeMap.Put(key + SEPARATOR + (ByteString)new byte[] { ++columnId }, type);
                     continue;
                 }
                 if (type == INT_FIXED_LEN || type == BYTESTRING_FIXED_LEN)
                 {
-                    columnTypeMap.Put(key + SEPARATOR + (ByteString)(++columnId), (ByteString)new byte[] { type, columnTypes[++i] });
+                    columnTypeMap.Put(key + SEPARATOR + (ByteString)new byte[] { ++columnId }, (ByteString)new byte[] { type, columnTypes[++i] });
                     // now columnTypes[i] refers to the (fixed) length of the value, in count of bytes
                     ExecutionEngine.Assert(columnTypes[i] != 0x00, "Invalid length 0x00");
                     continue;
@@ -140,7 +141,7 @@ namespace RelationalDB
             StorageContext context = Storage.CurrentContext;
             StorageMap columnNameMap = new(context, COLUMN_NAME_PREFIX);
             StorageMap columnTypeMap = new(context, COLUMN_ID_PREFIX);
-            int i = 1;
+            byte i = 1;
             BigInteger namesLength = columnNames.Length;
             ByteString baseKey = user + tableName + SEPARATOR;
             while (i <= namesLength)
