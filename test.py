@@ -146,8 +146,14 @@ assert c.invokefunction('getRow', [user, table_name, 0x04030204]) == [0x04030204
 
 coverage = {k: v for k, v in c.get_contract_source_code_coverage().items() if 'Undefined' not in k}
 opcode_count = sum(len(v) for v in coverage.values())
-uncovered = {k: {opcode: covered for opcode, covered in v.items() if covered == False} for k, v in coverage.items() if not all(v.values())}
+uncovered = {k: {opcode: covered for opcode, covered in v.items() if covered == False} for k, v in coverage.items()
+             if 'throw new' not in k
+             and 'default:' not in k
+             and 'ExecutionEngine.Assert' not in k
+             and '::line 0' not in k
+             and not all(v.values())}
 uncovered_count = sum(len(v) for v in uncovered.values())
+uncovered = dict(sorted(uncovered.items()))
 for k, v in uncovered.items():
     print(f"{k}:")
     print(f"\t{v}")

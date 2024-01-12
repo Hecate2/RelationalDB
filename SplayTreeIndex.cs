@@ -1,10 +1,6 @@
-﻿using System;
-using System.ComponentModel;
-using System.Numerics;
+﻿using System.Numerics;
 using Neo;
 using Neo.SmartContract.Framework;
-using Neo.SmartContract.Framework.Attributes;
-using Neo.SmartContract.Framework.Native;
 using Neo.SmartContract.Framework.Services;
 
 namespace RelationalDB
@@ -23,13 +19,23 @@ namespace RelationalDB
     /// </summary>
     public partial class RelationalDB
     {
-        const byte SPLAY_SIZE = 0xe0;               // size of splay tree
-        const byte SPLAY_ROOT = 0xef;               // KEY of root node
-        const byte SPLAY_NODE_PARENT_PREFIX = 0xf0; // KEY of current node -> KEY of parent node
-        const byte SPLAY_NODE_LEFT_PREFIX = 0xf1;   // KEY of current node -> KEY of the left child
-        const byte SPLAY_NODE_RIGHT_PREFIX = 0xf2;  // KEY of current node -> KEY of the right child
-        const byte SPLAY_NODE_COUNT_PREFIX = 0xf3;  // KEY of current node -> the count of current node
-        // KEY of node == UInt160 user + ByteString tableName + SEPARATOR + 1-byte columnId + value
+        // columnKey == UInt160 user + ByteString tableName + SEPARATOR + 1-byte columnId
+        const byte SPLAY_SIZE = 0xe0;               // columnKey -> size of splay tree
+        const byte SPLAY_ROOT = 0xef;               // columnKey -> value of root node
+        const byte SPLAY_NODE_PARENT_PREFIX = 0xf0; // columnKey + current node -> parent node
+        const byte SPLAY_NODE_LEFT_PREFIX = 0xf1;   // columnKey + current node -> left child
+        const byte SPLAY_NODE_RIGHT_PREFIX = 0xf2;  // columnKey + current node -> right child
+        const byte SPLAY_NODE_COUNT_PREFIX = 0xf3;  // columnKey + current node -> the count of current node
+
+        protected void SplayPut(StorageMap map, ByteString key, ByteString value)
+        {
+            if (key == null)
+                return;
+            if (value == null)
+                map.Delete(key);
+            else
+                map.Put(key, value);
+        }
 
         /// <summary>
         /// 
@@ -44,26 +50,23 @@ namespace RelationalDB
             StorageMap rightMap = new(context, (ByteString)new byte[] { SPLAY_NODE_RIGHT_PREFIX } + columnKey);
             StorageMap rootMap = new StorageMap(context, SPLAY_ROOT);
 
-            ByteString y = rightMap[x];
             ByteString xParent = parentMap[x];
-            if (y != null)
+            ByteString xLeft = leftMap[x];
+            ByteString xGrandParent = xParent == null ? null : parentMap[xParent];
+            SplayPut(rightMap, xParent, xLeft);
+            SplayPut(parentMap, xLeft, xParent);
+            SplayPut(leftMap, x, xParent);
+            SplayPut(parentMap, xParent, x);
+            SplayPut(parentMap, x, xGrandParent);
+            if (xGrandParent != null)
             {
-                ByteString yLeft = leftMap[y];
-                rightMap[x] = yLeft;
-                if (yLeft != null)
-                    parentMap[yLeft] = x;
-                parentMap[y] = xParent;
+                rootMap[columnKey] = x;
+                return;
             }
-
-            if (xParent != null)
-                rootMap[columnKey] = y;
-            else if (x == leftMap[xParent])
-                leftMap[xParent] = y;
+            if ((BigInteger)x < (BigInteger)xGrandParent)
+                SplayPut(leftMap, xGrandParent, x);
             else
-                rightMap[xParent] = y;
-            if (y != null)
-                leftMap[y] = x;
-            parentMap[x] = y;
+                SplayPut(rightMap, xGrandParent, x);
         }
         /// <summary>
         /// 
@@ -78,26 +81,23 @@ namespace RelationalDB
             StorageMap rightMap = new(context, (ByteString)new byte[] { SPLAY_NODE_RIGHT_PREFIX } + columnKey);
             StorageMap rootMap = new StorageMap(context, SPLAY_ROOT);
 
-            ByteString y = leftMap[x];
             ByteString xParent = parentMap[x];
-            if (y != null)
+            ByteString xRight = rightMap[x];
+            ByteString xGrandParent = xParent == null ? null : parentMap[xParent];
+            SplayPut(leftMap, xParent, xRight);
+            SplayPut(parentMap, xRight, xParent);
+            SplayPut(rightMap, x, xParent);
+            SplayPut(parentMap, xParent, x);
+            SplayPut(parentMap, x, xGrandParent);
+            if (xGrandParent != null)
             {
-                ByteString yRight = rightMap[y];
-                leftMap[x] = yRight;
-                if (yRight != null)
-                    parentMap[yRight] = x;
-                parentMap[y] = xParent;
+                rootMap[columnKey] = x;
+                return;
             }
-
-            if (xParent != null)
-                rootMap[columnKey] = y;
-            else if (x == leftMap[xParent])
-                leftMap[xParent] = y;
+            if ((BigInteger)x < (BigInteger)xGrandParent)
+                SplayPut(leftMap, xGrandParent, x);
             else
-                rightMap[xParent] = y;
-            if (y != null)
-                rightMap[y] = x;
-            parentMap[x] = y;
+                SplayPut(rightMap, xGrandParent, x);
         }
 
         /// <summary>
@@ -155,8 +155,8 @@ namespace RelationalDB
         /// <param name="tableName"></param>
         /// <param name="columnId"></param>
         /// <param name="x"></param>
-        protected void Insert(UInt160 user, ByteString tableName, byte columnId, ByteString x) => Insert(user + tableName + SEPARATOR + (ByteString)new byte[] { columnId }, x);
-        protected void Insert(ByteString columnKey, ByteString x)
+        protected void SplayInsert(UInt160 user, ByteString tableName, byte columnId, ByteString x) => SplayInsert(user + tableName + SEPARATOR + (ByteString)new byte[] { columnId }, x);
+        protected void SplayInsert(ByteString columnKey, ByteString x)
         {
             StorageContext context = Storage.CurrentContext;
             StorageMap treeSizeMap = new(context, SPLAY_SIZE);
@@ -195,8 +195,8 @@ namespace RelationalDB
                         u = left;
                     else
                     {
-                        parentMap[x] = u;
-                        leftMap[u] = x;
+                        SplayPut(parentMap, x, u);
+                        SplayPut(leftMap, u, x);
                         break;
                     }
                 }
@@ -207,8 +207,8 @@ namespace RelationalDB
                         u = right;
                     else
                     {
-                        parentMap[x] = u;
-                        rightMap[u] = x;
+                        SplayPut(parentMap, x, u);
+                        SplayPut(rightMap, u, x);
                         break;
                     }
                 }
@@ -230,7 +230,7 @@ namespace RelationalDB
             StorageContext context = Storage.CurrentContext;
             StorageMap nodeCountMap = new(context, (ByteString)new byte[] { SPLAY_NODE_COUNT_PREFIX } + columnKey);
             BigInteger nodeCount = (BigInteger)nodeCountMap[x];
-            ExecutionEngine.Assert(nodeCount > 0, "No value " + x);
+            ExecutionEngine.Assert(nodeCount > 0, "No value");
             Splay(columnKey, x, null);
             return nodeCount;
         }
@@ -343,7 +343,7 @@ namespace RelationalDB
             StorageContext context = Storage.CurrentContext;
             StorageMap nodeCountMap = new(context, (ByteString)new byte[] { SPLAY_NODE_COUNT_PREFIX } + columnKey);
             BigInteger nodeCount = (BigInteger)nodeCountMap[x];
-            ExecutionEngine.Assert(nodeCount > 0, "No value " + x);
+            ExecutionEngine.Assert(nodeCount > 0, "No value");
             nodeCountMap.Put(x, nodeCount - 1);
             StorageMap treeSizeMap = new(context, SPLAY_SIZE);
             BigInteger treeSize = (BigInteger)treeSizeMap[columnKey];
@@ -357,21 +357,23 @@ namespace RelationalDB
             StorageMap rightMap = new(context, (ByteString)new byte[] { SPLAY_NODE_RIGHT_PREFIX } + columnKey);
             ByteString xLeft = leftMap[x];
             ByteString xRight = rightMap[x];
-            if (xLeft != null)
+            if (xLeft == null)
             {
-                rootMap[columnKey] = xRight;
+                SplayPut(rootMap, columnKey, xRight);
                 if (xRight != null)
-                    parentMap[xRight] = null;
+                    parentMap.Delete(xRight);
                 return;
             }
             Splay(columnKey, SplayMax(columnKey, xLeft), rootMap[columnKey]);
-            parentMap[xLeft] = null;
+            xLeft = leftMap[x];
+            if (xLeft != null)
+                parentMap.Delete(xLeft);
             if (xRight != null)
             {
-                rightMap[xLeft] = xRight;
-                parentMap[xRight] = xLeft;
+                SplayPut(rightMap, xLeft, xRight);
+                SplayPut(parentMap, xRight, xLeft);
             }
-            rootMap[columnKey] = xLeft;
+            SplayPut(rootMap, columnKey, xLeft);
             return;
         }
     }
