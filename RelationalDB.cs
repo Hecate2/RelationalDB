@@ -20,7 +20,7 @@ namespace RelationalDB
         const byte UINT160 = 0x10;
         const byte UINT256 = 0x11;
         const byte BOOLEAN = 0x20;
-        // INT_VAR_LEN costs additional 2 bytes in storage
+        // INT_VAR_LEN costs additional 2 bytes in storage, for length of int
         const byte INT_VAR_LEN = 0x21;   // Neo3 only allows BigInteger <= 32 bytes to be decoded
         const byte BYTESTRING_VAR_LEN = 0x28;
         const byte INT_FIXED_LEN = 0x31;
@@ -49,9 +49,9 @@ namespace RelationalDB
         public static ByteString GetColumnTypeByName(UInt160 user, ByteString tableName, ByteString columnName)
         {
             StorageContext context = Storage.CurrentContext;
-            ByteString baseKey = user + tableName + SEPARATOR;
-            return new StorageMap(context, COLUMN_ID_PREFIX)[baseKey +
-                new StorageMap(context, COLUMN_NAME_PREFIX)[baseKey + columnName]
+            ByteString tableKey = user + tableName + SEPARATOR;
+            return new StorageMap(context, COLUMN_ID_PREFIX)[tableKey +
+                new StorageMap(context, COLUMN_NAME_PREFIX)[tableKey + columnName]
             ];
         }
         [Safe]
@@ -91,12 +91,12 @@ namespace RelationalDB
             if (columnTypes.Length == 0) throw new ArgumentException("No column specified");
 
             StorageContext context = Storage.CurrentContext;
-            ByteString key = user + tableName;
-            ByteString droppedTable = new StorageMap(context, DROPPED_TABLE_NAME_TO_COLUMNS_PREFIX).Get(key);
+            ByteString tableKey = user + tableName;
+            ByteString droppedTable = new StorageMap(context, DROPPED_TABLE_NAME_TO_COLUMNS_PREFIX).Get(tableKey);
             if (droppedTable != null)
                 throw new ArgumentException("Table already dropped");
             StorageMap createdTable = new StorageMap(context, USER_TABLE_NAME_TO_COLUMNS_PREFIX);
-            if (createdTable.Get(key) != null)
+            if (createdTable.Get(tableKey) != null)
                 throw new ArgumentException("Table already created");
 
             int l = columnTypes.Length;
@@ -108,12 +108,12 @@ namespace RelationalDB
                 if (type == BOOLEAN || type == INT_VAR_LEN || type == BYTESTRING_VAR_LEN || 
                     type == UINT160 || type == UINT256)
                 {
-                    columnTypeMap.Put(key + SEPARATOR + (ByteString)new byte[] { ++columnId }, type);
+                    columnTypeMap.Put(tableKey + SEPARATOR + (ByteString)new byte[] { ++columnId }, type);
                     continue;
                 }
                 if (type == INT_FIXED_LEN || type == BYTESTRING_FIXED_LEN)
                 {
-                    columnTypeMap.Put(key + SEPARATOR + (ByteString)new byte[] { ++columnId }, (ByteString)new byte[] { type, columnTypes[++i] });
+                    columnTypeMap.Put(tableKey + SEPARATOR + (ByteString)new byte[] { ++columnId }, (ByteString)new byte[] { type, columnTypes[++i] });
                     // now columnTypes[i] refers to the (fixed) length of the value, in count of bytes
                     ExecutionEngine.Assert(columnTypes[i] != 0x00, "Invalid length 0x00");
                     continue;
@@ -121,9 +121,9 @@ namespace RelationalDB
                 ExecutionEngine.Assert(false, "Invalid type " + type);
             }
 
-            createdTable.Put(key, columnTypes);
+            createdTable.Put(tableKey, columnTypes);
             if (useAutoIncPriKey)
-                new StorageMap(context, TABLE_ROW_ID_PREFIX).Put(key, 1);
+                new StorageMap(context, TABLE_ROW_ID_PREFIX).Put(tableKey, 1);
             //else
             //    new StorageMap(context, TABLE_ROW_ID_PREFIX).Put(key, 0);
             return columnId;
@@ -143,11 +143,11 @@ namespace RelationalDB
             StorageMap columnTypeMap = new(context, COLUMN_ID_PREFIX);
             byte i = 1;
             BigInteger namesLength = columnNames.Length;
-            ByteString baseKey = user + tableName + SEPARATOR;
+            ByteString tableKey = user + tableName + SEPARATOR;
             while (i <= namesLength)
             {
-                ExecutionEngine.Assert(columnTypeMap[baseKey + (ByteString)(BigInteger)i] != null, "No column " + i);
-                columnNameMap.Put(baseKey + columnNames[i-1], i);
+                ExecutionEngine.Assert(columnTypeMap[tableKey + (ByteString)(BigInteger)i] != null, "No column " + i);
+                columnNameMap.Put(tableKey + columnNames[i-1], i);
                 i++;
             }
         }
@@ -156,13 +156,13 @@ namespace RelationalDB
         {
             ExecutionEngine.Assert(Runtime.CheckWitness(user), "witness DropTable");
             StorageContext context = Storage.CurrentContext;
-            ByteString key = user + tableName;
+            ByteString tableKey = user + tableName;
             StorageMap tableToColumns = new StorageMap(context, USER_TABLE_NAME_TO_COLUMNS_PREFIX);
-            ByteString columnTypes = tableToColumns.Get(key);
+            ByteString columnTypes = tableToColumns.Get(tableKey);
             if (columnTypes == null || columnTypes.Length == 0)
                 throw new ArgumentException("No table at id " + tableName);
-            tableToColumns.Delete(key);
-            new StorageMap(context, DROPPED_TABLE_NAME_TO_COLUMNS_PREFIX).Put(key, columnTypes);
+            tableToColumns.Delete(tableKey);
+            new StorageMap(context, DROPPED_TABLE_NAME_TO_COLUMNS_PREFIX).Put(tableKey, columnTypes);
         }
 
         [Safe]
@@ -219,15 +219,15 @@ namespace RelationalDB
             BigInteger rowLength = row.Length;
             ExecutionEngine.Assert(rowLength > 0, "No row");
             StorageContext context = Storage.CurrentContext;
-            ByteString key = user + tableName;
+            ByteString tableKey = user + tableName;
 
-            byte[] columnTypes = (byte[])new StorageMap(context, USER_TABLE_NAME_TO_COLUMNS_PREFIX)[key];
+            byte[] columnTypes = (byte[])new StorageMap(context, USER_TABLE_NAME_TO_COLUMNS_PREFIX)[tableKey];
             int columnTypesIndexer = 0;
             int rowIndexer = 0;
 
             // whether this table use auto-increment primary key
             StorageMap tableRowId = new StorageMap(context, TABLE_ROW_ID_PREFIX);
-            ByteString rowId = tableRowId[key];
+            ByteString rowId = tableRowId[tableKey];
             ByteString primaryKey;
             if (rowId == null)
             {
@@ -245,10 +245,10 @@ namespace RelationalDB
             List<object> rowWithoutPrimaryKey = new();
             while(rowIndexer < rowLength)
                 rowWithoutPrimaryKey.Add(row[rowIndexer++]);
-            new StorageMap(context, ROWS_PREFIX).Put(key + SEPARATOR + primaryKey,
+            new StorageMap(context, ROWS_PREFIX).Put(tableKey + SEPARATOR + primaryKey,
                 EncodeRow(rowWithoutPrimaryKey, columnTypes[columnTypesIndexer..]));
             if (rowId != null)
-                tableRowId.Put(key, (BigInteger)rowId + 1);
+                tableRowId.Put(tableKey, (BigInteger)rowId + 1);
         }
 
         /// <summary>
@@ -262,12 +262,12 @@ namespace RelationalDB
             ExecutionEngine.Assert(Runtime.CheckWitness(user), "witness WriteRow");
             ExecutionEngine.Assert(rows.Length > 0, "No rows");
             StorageContext context = Storage.CurrentContext;
-            ByteString key = user + tableName;
-            byte[] columnTypes = (byte[])new StorageMap(context, USER_TABLE_NAME_TO_COLUMNS_PREFIX)[key];
+            ByteString tableKey = user + tableName;
+            byte[] columnTypes = (byte[])new StorageMap(context, USER_TABLE_NAME_TO_COLUMNS_PREFIX)[tableKey];
             BigInteger rowLength = rows[0].Length;
             // whether this table use auto-increment primary key
             StorageMap tableRowId = new StorageMap(context, TABLE_ROW_ID_PREFIX);
-            ByteString rowId = tableRowId[key];
+            ByteString rowId = tableRowId[tableKey];
 
             foreach (object[] row in rows)
             {
@@ -292,10 +292,10 @@ namespace RelationalDB
                 List<object> rowWithoutPrimaryKey = new();
                 while (rowIndexer < rowLength)
                     rowWithoutPrimaryKey.Add(row[rowIndexer++]);
-                new StorageMap(context, ROWS_PREFIX).Put(key + SEPARATOR + primaryKey,
+                new StorageMap(context, ROWS_PREFIX).Put(tableKey + SEPARATOR + primaryKey,
                     EncodeRow(rowWithoutPrimaryKey, columnTypes[columnTypesIndexer..]));
                 if (rowId != null)
-                    tableRowId.Put(key, (BigInteger)rowId + 1);
+                    tableRowId.Put(tableKey, (BigInteger)rowId + 1);
             }
         }
 
@@ -376,12 +376,12 @@ namespace RelationalDB
         public static object[] GetRow(UInt160 user, ByteString tableName, ByteString primaryKey)
         {
             StorageContext context = Storage.CurrentContext;
-            ByteString key = user + tableName;
-            byte[] columnTypes = (byte[])new StorageMap(context, USER_TABLE_NAME_TO_COLUMNS_PREFIX)[key];
+            ByteString tableKey = user + tableName;
+            byte[] columnTypes = (byte[])new StorageMap(context, USER_TABLE_NAME_TO_COLUMNS_PREFIX)[tableKey];
             if (columnTypes == null)
                 throw new ArgumentException("No table");
-            ByteString rowId = new StorageMap(context, TABLE_ROW_ID_PREFIX)[key];
-            byte[] data = (byte[])new StorageMap(context, ROWS_PREFIX)[key + SEPARATOR + primaryKey];
+            ByteString rowId = new StorageMap(context, TABLE_ROW_ID_PREFIX)[tableKey];
+            byte[] data = (byte[])new StorageMap(context, ROWS_PREFIX)[tableKey + SEPARATOR + primaryKey];
             if (data == null)
                 throw new ArgumentException("No data");
             List<object> row = new();
@@ -403,16 +403,16 @@ namespace RelationalDB
         public static object[][] GetRows(UInt160 user, ByteString tableName, ByteString[] primaryKeys)
         {
             StorageContext context = Storage.CurrentContext;
-            ByteString key = user + tableName;
-            byte[] columnTypes = (byte[])new StorageMap(context, USER_TABLE_NAME_TO_COLUMNS_PREFIX)[key];
+            ByteString tableKey = user + tableName;
+            byte[] columnTypes = (byte[])new StorageMap(context, USER_TABLE_NAME_TO_COLUMNS_PREFIX)[tableKey];
             if (columnTypes == null)
                 throw new ArgumentException("No table");
-            ByteString rowId = new StorageMap(context, TABLE_ROW_ID_PREFIX)[key];
+            ByteString rowId = new StorageMap(context, TABLE_ROW_ID_PREFIX)[tableKey];
 
             List<object[]> resultRows = new();
             foreach(ByteString primaryKey in primaryKeys)
             {
-                byte[] data = (byte[])new StorageMap(context, ROWS_PREFIX)[key + SEPARATOR + primaryKey];
+                byte[] data = (byte[])new StorageMap(context, ROWS_PREFIX)[tableKey + SEPARATOR + primaryKey];
                 ExecutionEngine.Assert(data != null, "No data");
                 List<object> row = new();
                 int columnTypesIndexer = 0;
