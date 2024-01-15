@@ -34,6 +34,35 @@ namespace RelationalDB
         public BigInteger SplayGetRight(UInt160 user, ByteString tableName, byte columnId, ByteString value) => (BigInteger)new StorageMap(SPLAY_NODE_RIGHT_PREFIX)[user + tableName + SEPARATOR + (ByteString)new byte[] { columnId } + value];
         public BigInteger SplayGetNodeCount(UInt160 user, ByteString tableName, byte columnId, ByteString value) => (BigInteger)new StorageMap(SPLAY_NODE_COUNT_PREFIX)[user + tableName + SEPARATOR + (ByteString)new byte[] { columnId } + value];
 
+        public void SplayDebugPut(UInt160 user, ByteString tableName, byte columnId,
+            ByteString node, ByteString parent, ByteString leftChild, ByteString rightChild)
+        {
+            ExecutionEngine.Assert(user == UInt160.Zero || Runtime.CheckWitness(user), "debugPut witness");
+            StorageContext context = Storage.CurrentContext;
+            ByteString columnKey = user + tableName + SEPARATOR + (ByteString)new byte[] { columnId };
+            SplayPut(new(context, (ByteString)new byte[] { SPLAY_NODE_PARENT_PREFIX } + columnKey), node, parent);
+            SplayPut(new(context, (ByteString)new byte[] { SPLAY_NODE_LEFT_PREFIX } + columnKey), node, leftChild);
+            SplayPut(new(context, (ByteString)new byte[] { SPLAY_NODE_RIGHT_PREFIX } + columnKey), node, rightChild);
+        }
+        public void SplayDebugLeftRotateZag(UInt160 user, ByteString tableName, byte columnId, ByteString node)
+        {
+            ExecutionEngine.Assert(user == UInt160.Zero || Runtime.CheckWitness(user), "debugLeft witness");
+            ByteString columnKey = user + tableName + SEPARATOR + (ByteString)new byte[] { columnId };
+            SplayLeftRotateZag(columnKey, node);
+        }
+        public void SplayDebugRightRotateZig(UInt160 user, ByteString tableName, byte columnId, ByteString node)
+        {
+            ExecutionEngine.Assert(user == UInt160.Zero || Runtime.CheckWitness(user), "debugRight witness");
+            ByteString columnKey = user + tableName + SEPARATOR + (ByteString)new byte[] { columnId };
+            SplayRightRotateZig(columnKey, node);
+        }
+        public void SplayDebugSplay(UInt160 user, ByteString tableName, byte columnId, ByteString node, ByteString subtreeRoot)
+        {
+            ExecutionEngine.Assert(user == UInt160.Zero || Runtime.CheckWitness(user), "debugSplay witness");
+            ByteString columnKey = user + tableName + SEPARATOR + (ByteString)new byte[] { columnId };
+            Splay(columnKey, node, subtreeRoot);
+        }
+
         protected void SplayPut(StorageMap map, ByteString key, ByteString value)
         {
             if (key == null)
