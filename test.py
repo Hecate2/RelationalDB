@@ -80,18 +80,20 @@ assert c.invokefunction('splayGetSize', [user, table_name, 2]) == 2
 assert c.invokefunction('splayGetRoot', [user, table_name, 2]) == 233
 
 v=23333
-assert c.invokefunction('splayGetParent', [user, table_name, 2, v]) == 233
-assert c.invokefunction('splayGetLeft', [user, table_name, 2, v]) == 0
-assert c.invokefunction('splayGetRight', [user, table_name, 2, v]) == 0
+assert int.from_bytes(c.invokefunction('splayGetParent', [user, table_name, 2, v]), "little", signed=True) == 233
+assert c.invokefunction('splayGetLeft', [user, table_name, 2, v]) == None
+assert c.invokefunction('splayGetRight', [user, table_name, 2, v]) == None
 v=233
-assert c.invokefunction('splayGetParent', [user, table_name, 2, v]) == 0
-assert c.invokefunction('splayGetLeft', [user, table_name, 2, v]) == 0
-assert c.invokefunction('splayGetRight', [user, table_name, 2, v]) == 23333
+assert c.invokefunction('splayGetParent', [user, table_name, 2, v]) == None
+assert c.invokefunction('splayGetLeft', [user, table_name, 2, v]) == None
+assert int.from_bytes(c.invokefunction('splayGetRight', [user, table_name, 2, v]).encode(), "little", signed=True) == 23333
 
-assert c.invokefunction('splayPredecessor', [user, table_name, 2, 23333]) == 233
-assert c.invokefunction('splaySuccessor', [user, table_name, 2, 23333]) == 0
-assert c.invokefunction('splayPredecessor', [user, table_name, 2, 233]) == 0
-assert c.invokefunction('splaySuccessor', [user, table_name, 2, 233]) == 23333
+assert int.from_bytes(c.invokefunction('splayPredecessor', [user, table_name, 2, 23333]), "little", signed=True) == 233
+assert c.invokefunction('splaySuccessor', [user, table_name, 2, 23333]) == None
+assert c.invokefunction('splayPredecessor', [user, table_name, 2, 233]) == None
+assert int.from_bytes(c.invokefunction('splaySuccessor', [user, table_name, 2, 233]).encode(), "little", signed=True) == 23333
+assert int.from_bytes(c.invokefunction('splayMax', [user, table_name, 2, None]).encode(), "little", signed=True) == 23333
+assert int.from_bytes(c.invokefunction('splayMin', [user, table_name, 2, None]), "little", signed=True) == 233
 
 c.invokefunction('deleteRow', [user, table_name, 1])
 c.invokefunction('deleteRow', [user, table_name, 2])

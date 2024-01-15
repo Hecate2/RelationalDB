@@ -29,9 +29,9 @@ namespace RelationalDB
 
         public BigInteger SplayGetSize(UInt160 user, ByteString tableName, byte columnId) => (BigInteger)new StorageMap(SPLAY_SIZE_PREFIX)[user + tableName + SEPARATOR + (ByteString)new byte[] { columnId }];
         public BigInteger SplayGetRoot(UInt160 user, ByteString tableName, byte columnId) => (BigInteger)new StorageMap(SPLAY_ROOT_PREFIX)[user + tableName + SEPARATOR + (ByteString)new byte[] { columnId }];
-        public BigInteger SplayGetParent(UInt160 user, ByteString tableName, byte columnId, ByteString value) => (BigInteger)new StorageMap(SPLAY_NODE_PARENT_PREFIX)[user + tableName + SEPARATOR + (ByteString)new byte[] { columnId } + value];
-        public BigInteger SplayGetLeft(UInt160 user, ByteString tableName, byte columnId, ByteString value) => (BigInteger)new StorageMap(SPLAY_NODE_LEFT_PREFIX)[user + tableName + SEPARATOR + (ByteString)new byte[] { columnId } + value];
-        public BigInteger SplayGetRight(UInt160 user, ByteString tableName, byte columnId, ByteString value) => (BigInteger)new StorageMap(SPLAY_NODE_RIGHT_PREFIX)[user + tableName + SEPARATOR + (ByteString)new byte[] { columnId } + value];
+        public ByteString SplayGetParent(UInt160 user, ByteString tableName, byte columnId, ByteString value) => new StorageMap(SPLAY_NODE_PARENT_PREFIX)[user + tableName + SEPARATOR + (ByteString)new byte[] { columnId } + value];
+        public ByteString SplayGetLeft(UInt160 user, ByteString tableName, byte columnId, ByteString value) => new StorageMap(SPLAY_NODE_LEFT_PREFIX)[user + tableName + SEPARATOR +(ByteString)new byte[] { columnId } + value];
+        public ByteString SplayGetRight(UInt160 user, ByteString tableName, byte columnId, ByteString value) => new StorageMap(SPLAY_NODE_RIGHT_PREFIX)[user + tableName + SEPARATOR +(ByteString)new byte[] { columnId } + value];
         public BigInteger SplayGetNodeCount(UInt160 user, ByteString tableName, byte columnId, ByteString value) => (BigInteger)new StorageMap(SPLAY_NODE_COUNT_PREFIX)[user + tableName + SEPARATOR + (ByteString)new byte[] { columnId } + value];
 
         public void SplayDebugPut(UInt160 user, ByteString tableName, byte columnId,
@@ -289,6 +289,8 @@ namespace RelationalDB
         {
             StorageContext context = Storage.CurrentContext;
             StorageMap rightMap = new(context, (ByteString)new byte[] { SPLAY_NODE_RIGHT_PREFIX } + columnKey);
+            if (subtreeRoot == null)
+                subtreeRoot = new StorageMap(context, SPLAY_ROOT_PREFIX)[columnKey];
             while (true)
             {
                 ByteString right = rightMap[subtreeRoot];
@@ -303,6 +305,8 @@ namespace RelationalDB
         {
             StorageContext context = Storage.CurrentContext;
             StorageMap leftMap = new(context, (ByteString)new byte[] { SPLAY_NODE_LEFT_PREFIX } + columnKey);
+            if (subtreeRoot == null)
+                subtreeRoot = new StorageMap(context, SPLAY_ROOT_PREFIX)[columnKey];
             while (true)
             {
                 ByteString left = leftMap[subtreeRoot];
@@ -320,8 +324,8 @@ namespace RelationalDB
         /// <param name="columnId"></param>
         /// <param name="x">The greatest num in the tree less than x. We allow x to be a number not inserted into the tree</param>
         /// <returns>null if no predecessor</returns>
-        public BigInteger SplayPredecessor(UInt160 user, ByteString tableName, byte columnId, ByteString x) => SplayPredecessor(user + tableName + SEPARATOR + (ByteString)new byte[] { columnId }, x);
-        public BigInteger SplayPredecessor(ByteString columnKey, ByteString x)
+        public ByteString SplayPredecessor(UInt160 user, ByteString tableName, byte columnId, ByteString x) => SplayPredecessor(user + tableName + SEPARATOR + (ByteString)new byte[] { columnId }, x);
+        public ByteString SplayPredecessor(ByteString columnKey, ByteString x)
         {
             StorageContext context = Storage.CurrentContext;
             StorageMap rootMap = new StorageMap(context, SPLAY_ROOT_PREFIX);
@@ -341,12 +345,12 @@ namespace RelationalDB
                     if (ans == null || ansValue < pValue)
                     {
                         ans = p;
-                        ansValue = (BigInteger)ans;
+                        ansValue = pValue;
                     }
                     p = rightMap[p];
                 }
             }
-            return ansValue;
+            return ans;
         }
 
         /// <summary>
@@ -357,8 +361,8 @@ namespace RelationalDB
         /// <param name="columnId"></param>
         /// <param name="x">The smallest num in the tree greater than x. We allow x to be a number not inserted into the tree</param>
         /// <returns>null if no predecessor</returns>
-        public BigInteger SplaySuccessor(UInt160 user, ByteString tableName, byte columnId, ByteString x) => SplaySuccessor(user + tableName + SEPARATOR + (ByteString)new byte[] { columnId }, x);
-        public BigInteger SplaySuccessor(ByteString columnKey, ByteString x)
+        public ByteString SplaySuccessor(UInt160 user, ByteString tableName, byte columnId, ByteString x) => SplaySuccessor(user + tableName + SEPARATOR + (ByteString)new byte[] { columnId }, x);
+        public ByteString SplaySuccessor(ByteString columnKey, ByteString x)
         {
             StorageContext context = Storage.CurrentContext;
             StorageMap rootMap = new StorageMap(context, SPLAY_ROOT_PREFIX);
@@ -378,12 +382,12 @@ namespace RelationalDB
                     if (ans == null || ansValue > pValue)
                     {
                         ans = p;
-                        ansValue = (BigInteger)ans;
+                        ansValue = pValue;
                     }
                     p = leftMap[p];
                 }
             }
-            return ansValue;
+            return ans;
         }
 
         protected void SplayDelete(UInt160 user, ByteString tableName, byte columnId, ByteString x) => SplayDelete(user + tableName + SEPARATOR + (ByteString)new byte[] { columnId }, x);
