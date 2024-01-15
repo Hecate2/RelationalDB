@@ -95,7 +95,7 @@ namespace RelationalDB
             SplayPut(leftMap, x, xParent);
             SplayPut(parentMap, xParent, x);
             SplayPut(parentMap, x, xGrandParent);
-            if (xGrandParent != null)
+            if (xGrandParent == null)
             {
                 rootMap[columnKey] = x;
                 return;
@@ -127,7 +127,7 @@ namespace RelationalDB
             SplayPut(rightMap, x, xParent);
             SplayPut(parentMap, xParent, x);
             SplayPut(parentMap, x, xGrandParent);
-            if (xGrandParent != null)
+            if (xGrandParent == null)
             {
                 rootMap[columnKey] = x;
                 return;
@@ -146,6 +146,7 @@ namespace RelationalDB
         /// <param name="subtreeRoot">use null to let x be the root of the whole tree</param>
         protected void Splay(ByteString columnKey, ByteString x, ByteString subtreeRoot)
         {
+            BigInteger xValue = (BigInteger)x;  // x may be recognized as BigInteger, though defined as ByteString
             StorageContext context = Storage.CurrentContext;
             StorageMap parentMap = new(context, (ByteString)new byte[] { SPLAY_NODE_PARENT_PREFIX } + columnKey);
             StorageMap leftMap = new(context, (ByteString)new byte[] { SPLAY_NODE_LEFT_PREFIX } + columnKey);
@@ -157,7 +158,7 @@ namespace RelationalDB
                 ByteString xGrandParent = parentMap[xParent];
                 if (xGrandParent == subtreeRoot)
                 {
-                    if (leftMap[xParent] == x)
+                    if ((BigInteger)leftMap[xParent] == xValue)
                         SplayRightRotateZig(columnKey, x);
                     else
                         SplayLeftRotateZag(columnKey, x);
@@ -165,7 +166,7 @@ namespace RelationalDB
                 }
                 else
                 {
-                    if (leftMap[xParent] == x)
+                    if ((BigInteger)leftMap[xParent] == xValue)
                     {
                         if (leftMap[xGrandParent] == xParent)
                         {
@@ -213,7 +214,7 @@ namespace RelationalDB
             StorageMap nodeCountMap = new(context, (ByteString)new byte[] { SPLAY_NODE_COUNT_PREFIX } + columnKey);
             BigInteger nodeCount = (BigInteger)nodeCountMap[x];
             nodeCountMap.Put(x, nodeCount + 1);
-            if (nodeCount > 1)  // x already in tree
+            if (nodeCount >= 1)  // x already in tree
             {
                 Splay(columnKey, x, null);
                 return;
