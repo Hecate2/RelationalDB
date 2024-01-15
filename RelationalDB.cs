@@ -216,11 +216,11 @@ namespace RelationalDB
             while (rowIndexer < rowLength)
             {
                 byte type = columnTypes[columnTypesIndexer++];
+                ++rowIndexer;
                 if (type == INT_FIXED_LEN || type == INT_VAR_LEN)
-                    SplayInsert(tableKey + (ByteString)new byte[] { rowIndexer }, (ByteString)row[rowIndexer]);
+                    SplayInsert(tableKey + (ByteString)new byte[] { rowIndexer }, (ByteString)row[rowIndexer-1]);
                 if (type == INT_FIXED_LEN || type == BYTESTRING_FIXED_LEN)
                     columnTypesIndexer++;
-                ++rowIndexer;
             }
         }
 
@@ -257,8 +257,11 @@ namespace RelationalDB
             }
             else
                 primaryKey = rowId;
-            if(USE_INDEX_FOR_INTEGER)
+            if (USE_INDEX_FOR_INTEGER)
+            {
                 DeleteRow(user, tableName, primaryKey);
+                WriteIndex(tableKey, row, columnTypes);
+            }
 
             // NC2010: The type object[] does not support range access.
             // Cannot write row[rowIndexer..]
@@ -269,8 +272,6 @@ namespace RelationalDB
                 EncodeRow(rowWithoutPrimaryKey, columnTypes[columnTypesIndexer..]));
             if (rowId != null)
                 tableRowId.Put(tableKey, (BigInteger)rowId + 1);
-            if (USE_INDEX_FOR_INTEGER)
-                WriteIndex(tableKey, row, columnTypes);
         }
 
         /// <summary>
@@ -310,7 +311,10 @@ namespace RelationalDB
                 else
                     primaryKey = rowId;
                 if (USE_INDEX_FOR_INTEGER)
+                {
                     DeleteRow(user, tableName, primaryKey);
+                    WriteIndex(tableKey, row, columnTypes);
+                }
 
                 // NC2010: The type object[] does not support range access.
                 // Cannot write row[rowIndexer..]
@@ -321,8 +325,6 @@ namespace RelationalDB
                     EncodeRow(rowWithoutPrimaryKey, columnTypes[columnTypesIndexer..]));
                 if (rowId != null)
                     tableRowId.Put(tableKey, (BigInteger)rowId + 1);
-                if (USE_INDEX_FOR_INTEGER)
-                    WriteIndex(tableKey, row, columnTypes);
             }
         }
 
@@ -334,11 +336,11 @@ namespace RelationalDB
             while (rowIndexer < rowLength)
             {
                 byte type = columnTypes[columnTypesIndexer++];
+                rowIndexer++;
                 if (type == INT_FIXED_LEN || type == INT_VAR_LEN)
-                    SplayDelete(tableKey + (ByteString)new byte[] { rowIndexer }, (ByteString)row[rowIndexer]);
+                    SplayDelete(tableKey + (ByteString)new byte[] { rowIndexer }, (ByteString)row[rowIndexer-1]);
                 if (type == INT_FIXED_LEN || type == BYTESTRING_FIXED_LEN)
                     columnTypesIndexer++;
-                rowIndexer++;
             }
         }
 

@@ -71,9 +71,28 @@ assert c.invokefunction('getColumnTypes', [user, table_name]) == column_types.de
 assert c.invokefunction('getRows', [user, table_name, [1, 2]]) == [[False, 24852966917239715797923, 'test str', 2147483647, '0123456789abcdef0123456789abcdef'], [True, 233, 'test str 233', 2147483646, '12345678901234567890\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00']]
 
 assert c.invokefunction('getRow', [user, table_name, 1]) == [False, 24852966917239715797923, 'test str', 2147483647, '0123456789abcdef0123456789abcdef']
+c.copy_snapshot(main_session, 'splay')
 assert c.invokefunction('getRow', [user, table_name, 2]) == [True, 233, 'test str 233', 2147483646, '12345678901234567890\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00']
 assert 'No data' in c.invokefunction('getRow', [user, table_name, 0], do_not_raise_on_result=True)
 assert len(c.invokefunction('listRows', [user, table_name])) == 2
+
+c.delete_source_code_breakpoints()
+c.set_source_code_breakpoint('RelationalDB.cs', 221)
+c.fairy_session = 'splay'
+print(b:=c.debug_function_with_session('writeRow', [user, table_name, [1, 233, 'test str 233', 2**31-2, '12345678901234567890']], fairy_session='splay'))
+c.fairy_session = main_session
+
+assert c.invokefunction('splayGetSize', [user, table_name, 2]) == 2
+print('root:', c.invokefunction('splayGetRoot', [user, table_name, 2]))
+for v in [24852966917239715797923, 233]:
+    print(v)
+    print(c.invokefunction('splayGetParent', [user, table_name, 2, v]), end=' ')
+    print(c.invokefunction('splayGetLeft', [user, table_name, 2, v]), end=' ')
+    print(c.invokefunction('splayGetRight', [user, table_name, 2, v]))
+print(c.invokefunction('splayPredecessor', [user, table_name, 2, 24852966917239715797923]))
+print(c.invokefunction('splaySuccessor', [user, table_name, 2, 24852966917239715797923]))
+print(c.invokefunction('splayPredecessor', [user, table_name, 2, 233]))
+print(c.invokefunction('splaySuccessor', [user, table_name, 2, 233]))
 
 c.invokefunction('deleteRow', [user, table_name, 1])
 c.invokefunction('deleteRow', [user, table_name, 2])
