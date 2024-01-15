@@ -40,6 +40,7 @@ namespace RelationalDB
         const string SEPARATOR = "\x00";
         const byte ROWS_PREFIX = (byte)'r';  // 0x72  user + tableName + SEPARATOR + rowId -> data[]
         const byte TABLE_ROW_ID_PREFIX = (byte)'i';  // 0x69  user + tableName -> rowId: int
+        const byte VALUE_TO_PRIMARY_KEY_PREFIX = (byte)'v';  // 0x76  user + tableName + SEPARATOR + columnId + value(var_length) + primaryKey -> 1
 
         [Safe]
         public ByteString GetColumnTypes(UInt160 user, ByteString tableName) => new StorageMap(USER_TABLE_NAME_TO_COLUMNS_PREFIX).Get(user + tableName);
@@ -69,10 +70,14 @@ namespace RelationalDB
         [Safe]
         public Iterator ListAllDroppedTables() => new StorageMap(DROPPED_TABLE_NAME_TO_COLUMNS_PREFIX).Find();
 
+        [Safe]
+        public Iterator FindPrimaryKeyFromValue(UInt160 user, ByteString tableName, byte columnId, BigInteger value) => new StorageMap(VALUE_TO_PRIMARY_KEY_PREFIX).Find(user + tableName + SEPARATOR + (ByteString)new byte[] { columnId } + EncodeInteger(value), FindOptions.RemovePrefix | FindOptions.KeysOnly);
+
         /// <summary>
         /// Be aware that Neo3 allows only storage key no more than 64 bytes
         /// <see cref="user"/> costs 20 bytes; a separator costs 1 byte; a prefix costs 1 byte
         /// you have only the remaining 42 bytes for table name and primary key
+        /// If you use index, you have 42 bytes for table name, primary key and value of a column
         /// DO NOT USE VERY LONG TABLE NAME
         /// </summary>
         /// <param name="user"></param>
@@ -208,7 +213,18 @@ namespace RelationalDB
             return writeContent;
         }
 
-        protected void WriteIndex(ByteString tableKey, object[] row, byte[] columnTypes)
+        /// <summary>
+        /// The total key length should not exceed 64 bytes!
+        /// </summary>
+        /// <param name="columnKey"></param>
+        /// <param name="primaryKey"></param>
+        /// <param name="value"></param>
+        protected void WriteRowIndex(ByteString columnKey, ByteString primaryKey, BigInteger value)
+        {
+            new StorageMap(VALUE_TO_PRIMARY_KEY_PREFIX)[columnKey+EncodeInteger(value)+primaryKey] = "\x01";
+        }
+
+        protected void WriteIndex(ByteString tableKey, object[] row, byte[] columnTypes, ByteString primaryKey)
         {
             int rowLength = row.Length;
             byte rowIndexer = 0, columnTypesIndexer = 0;
@@ -216,9 +232,14 @@ namespace RelationalDB
             while (rowIndexer < rowLength)
             {
                 byte type = columnTypes[columnTypesIndexer++];
+                ByteString value = (ByteString)row[rowIndexer];
                 ++rowIndexer;
+                ByteString columnKey = tableKey + (ByteString)new byte[] { rowIndexer };
                 if (type == INT_FIXED_LEN || type == INT_VAR_LEN)
-                    SplayInsert(tableKey + (ByteString)new byte[] { rowIndexer }, (ByteString)row[rowIndexer-1]);
+                {
+                    WriteRowIndex(columnKey, primaryKey, (BigInteger)value);
+                    SplayInsert(columnKey, value);
+                }
                 if (type == INT_FIXED_LEN || type == BYTESTRING_FIXED_LEN)
                     columnTypesIndexer++;
             }
@@ -260,7 +281,7 @@ namespace RelationalDB
             if (USE_INDEX_FOR_INTEGER)
             {
                 DeleteRow(user, tableName, primaryKey);
-                WriteIndex(tableKey, row, columnTypes);
+                WriteIndex(tableKey, row, columnTypes, primaryKey);
             }
 
             // NC2010: The type object[] does not support range access.
@@ -313,7 +334,7 @@ namespace RelationalDB
                 if (USE_INDEX_FOR_INTEGER)
                 {
                     DeleteRow(user, tableName, primaryKey);
-                    WriteIndex(tableKey, row, columnTypes);
+                    WriteIndex(tableKey, row, columnTypes, primaryKey);
                 }
 
                 // NC2010: The type object[] does not support range access.
@@ -328,7 +349,12 @@ namespace RelationalDB
             }
         }
 
-        protected void DeleteIndex(ByteString tableKey, object[] row, byte[] columnTypes)
+        protected void DeleteRowIndex(ByteString columnKey, ByteString primaryKey, BigInteger value)
+        {
+            new StorageMap(VALUE_TO_PRIMARY_KEY_PREFIX).Delete(columnKey+EncodeInteger(value)+primaryKey);
+        }
+
+        protected void DeleteIndex(ByteString tableKey, object[] row, byte[] columnTypes, ByteString primaryKey)
         {
             int rowLength = row.Length;
             byte rowIndexer = 0, columnTypesIndexer = 0;
@@ -336,9 +362,14 @@ namespace RelationalDB
             while (rowIndexer < rowLength)
             {
                 byte type = columnTypes[columnTypesIndexer++];
+                ByteString value = (ByteString)row[rowIndexer];
                 rowIndexer++;
+                ByteString columnKey = tableKey + (ByteString)new byte[] { rowIndexer };
                 if (type == INT_FIXED_LEN || type == INT_VAR_LEN)
-                    SplayDelete(tableKey + (ByteString)new byte[] { rowIndexer }, (ByteString)row[rowIndexer-1]);
+                {
+                    DeleteRowIndex(columnKey, primaryKey, (BigInteger)value);
+                    SplayDelete(columnKey, value);
+                }
                 if (type == INT_FIXED_LEN || type == BYTESTRING_FIXED_LEN)
                     columnTypesIndexer++;
             }
@@ -351,7 +382,7 @@ namespace RelationalDB
             {
                 ByteString tableKey = user + tableName;
                 object[] row = GetRow(tableKey, primaryKey);
-                DeleteIndex(tableKey, row, (byte[])new StorageMap(USER_TABLE_NAME_TO_COLUMNS_PREFIX)[tableKey]);
+                DeleteIndex(tableKey, row, (byte[])new StorageMap(USER_TABLE_NAME_TO_COLUMNS_PREFIX)[tableKey], primaryKey);
                 new StorageMap(ROWS_PREFIX).Delete(tableKey + SEPARATOR + primaryKey);
             }catch (Exception)
             {
@@ -372,7 +403,7 @@ namespace RelationalDB
                 {
                     ByteString tableKey = user + tableName;
                     object[] row = GetRow(tableKey, primaryKey);
-                    DeleteIndex(tableKey, row, (byte[])new StorageMap(USER_TABLE_NAME_TO_COLUMNS_PREFIX)[tableKey]);
+                    DeleteIndex(tableKey, row, (byte[])new StorageMap(USER_TABLE_NAME_TO_COLUMNS_PREFIX)[tableKey], primaryKey);
                     new StorageMap(ROWS_PREFIX).Delete(tableKey + SEPARATOR + primaryKey);
                 }
                 catch (Exception)

@@ -65,7 +65,6 @@ assert len(c.invokefunction('listAllDroppedTables')) == 0
 assert 'Too long value' in c.invokefunction('writeRow', [user, table_name, [1, 23333, 'test str', 2**31, '0123456789']], do_not_raise_on_result=True)
 assert 'Too long value' in c.invokefunction('writeRow', [user, table_name, [1, 23333, 'test str', 2**31-1, '0123456789abcdef 0123456789abcdef']], do_not_raise_on_result=True)
 c.invokefunction('writeRow', [user, table_name, [0, 23333, 'test str', 2**31-1, '0123456789abcdef0123456789abcdef']])
-c.copy_snapshot(main_session, 'splay')
 c.invokefunction('writeRow', [user, table_name, [1, 233, 'test str 233', 2**31-2, '12345678901234567890']])
 assert c.invokefunction('getRowId', [user, table_name]) == 3
 assert c.invokefunction('getColumnTypes', [user, table_name]) == column_types.decode()
@@ -131,8 +130,42 @@ for row in data:
 assert c.invokefunction('getRow', [user, table_name, data[0][0]]) == ['\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', 1]
 assert c.invokefunction('getRow', [user, table_name, data[1][0]]) == ['\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', -2]
 assert c.invokefunction('getRow', [user, table_name, data[2][0]]) == ['\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', -3]
-
+assert c.invokefunction('findPrimaryKeyFromValue', [user, table_name, 3, 1]) == ['\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00']
+c.invokefunction('writeRow', [user, table_name, [Hash160Str('0x'+'00'*19+'03'), Hash256Str('0x'+'00'*31+'03'), -3]])
+assert set(c.invokefunction('findPrimaryKeyFromValue', [user, table_name, 3, -3])) == {'\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'}
+r"""
+-3
+ -2
+   1
+"""
+v=1
+assert int.from_bytes(c.invokefunction('splayGetParent', [user, table_name, 3, v]), "little", signed=True) == -2
+assert c.invokefunction('splayGetLeft', [user, table_name, 3, v]) == None
+assert c.invokefunction('splayGetRight', [user, table_name, 3, v]) == None
+v=-2
+assert int.from_bytes(c.invokefunction('splayGetParent', [user, table_name, 3, v]), "little", signed=True) == -3
+assert c.invokefunction('splayGetLeft', [user, table_name, 3, v]) == None
+assert int.from_bytes(c.invokefunction('splayGetRight', [user, table_name, 3, v]).encode(), "little", signed=True) == 1
+v=-3
+assert c.invokefunction('splayGetParent', [user, table_name, 3, v]) == None
+assert c.invokefunction('splayGetLeft', [user, table_name, 3, v]) == None
+assert int.from_bytes(c.invokefunction('splayGetRight', [user, table_name, 3, v]), "little", signed=True) == -2
+assert c.invokefunction('splaySuccessor', [user, table_name, 3, -4]) == b'\xfd'
+assert c.invokefunction('splaySuccessor', [user, table_name, 3, -3]) == b'\xfe'
+assert c.invokefunction('splaySuccessor', [user, table_name, 3, -2]) == '\x01'
+assert c.invokefunction('splaySuccessor', [user, table_name, 3, -1]) == '\x01'
+assert c.invokefunction('splaySuccessor', [user, table_name, 3, 0]) == '\x01'
+assert c.invokefunction('splaySuccessor', [user, table_name, 3, 1]) == None
+assert c.invokefunction('splaySuccessor', [user, table_name, 3, 2]) == None
+assert c.invokefunction('splayPredecessor', [user, table_name, 3, -4]) == None
+assert c.invokefunction('splayPredecessor', [user, table_name, 3, -3]) == None
+assert c.invokefunction('splayPredecessor', [user, table_name, 3, -2]) == b'\xfd'
+assert c.invokefunction('splayPredecessor', [user, table_name, 3, -1]) == b'\xfe'
+assert c.invokefunction('splayPredecessor', [user, table_name, 3, 0]) == b'\xfe'
+assert c.invokefunction('splayPredecessor', [user, table_name, 3, 1]) == b'\xfe'
+assert c.invokefunction('splayPredecessor', [user, table_name, 3, 2]) == '\x01'
 c.fairy_session = main_session
+
 c.invokefunction('writeRows', [user, table_name, data])
 assert c.invokefunction('getRow', [user, table_name, data[0][0]]) == ['\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', 1]
 assert c.invokefunction('getRow', [user, table_name, data[1][0]]) == ['\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', -2]
@@ -143,6 +176,17 @@ assert c.invokefunction('getRows', [user, table_name, [entry[0] for entry in dat
     ['\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', -3]
 ]
 assert len(rows := c.invokefunction('listRows', [user, table_name])) == 3
+
+c.invokefunction('writeRows', [user, table_name, data])  # write again to test splay tree
+assert int.from_bytes(c.invokefunction('splayPredecessor', [user, table_name, 3, 1]), "little", signed=True) == -2
+assert c.invokefunction('splaySuccessor', [user, table_name, 3, 1]) == None
+assert int.from_bytes(c.invokefunction('splayPredecessor', [user, table_name, 3, -2]), "little", signed=True) == -3
+assert int.from_bytes(c.invokefunction('splaySuccessor', [user, table_name, 3, -2]).encode(), "little", signed=True) == 1
+assert c.invokefunction('splayPredecessor', [user, table_name, 3, -3]) == None
+assert int.from_bytes(c.invokefunction('splaySuccessor', [user, table_name, 3, -3]), "little", signed=True) == -2
+
+c.invokefunction('deleteRow', [user, table_name, data[0][0]])
+c.invokefunction('writeRow', [user, table_name, data[1]])
 # print(rows)
 c.invokefunction('deleteRows', [user, table_name, [entry[0] for entry in data]])
 assert len(c.invokefunction('listRows', [user, table_name])) == 0

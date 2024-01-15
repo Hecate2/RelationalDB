@@ -401,6 +401,8 @@ namespace RelationalDB
             StorageMap treeSizeMap = new(context, SPLAY_SIZE_PREFIX);
             BigInteger treeSize = (BigInteger)treeSizeMap[columnKey];
             treeSizeMap.Put(columnKey, treeSize - 1);
+            if (nodeCount > 1)
+                return;
 
             Splay(columnKey, x, null);
 
@@ -415,6 +417,9 @@ namespace RelationalDB
                 SplayPut(rootMap, columnKey, xRight);
                 if (xRight != null)
                     parentMap.Delete(xRight);
+                parentMap.Delete(x);
+                leftMap.Delete(x);
+                rightMap.Delete(x);
                 return;
             }
             Splay(columnKey, SplayMax(columnKey, xLeft), rootMap[columnKey]);
@@ -427,6 +432,10 @@ namespace RelationalDB
                 SplayPut(parentMap, xRight, xLeft);
             }
             SplayPut(rootMap, columnKey, xLeft);
+
+            parentMap.Delete(x);
+            leftMap.Delete(x);
+            rightMap.Delete(x);
             return;
         }
     }
